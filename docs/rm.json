@@ -1,0 +1,49 @@
+{
+  "name": "rm",
+  "summary": "remove files or directories",
+  "description": "Remove each FILE. Directories require -r to remove recursively.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "r",
+      "long": "recursive",
+      "datatype": null,
+      "description": "remove directories and their contents",
+      "required": false
+    },
+    {
+      "short": "i",
+      "long": "interactive",
+      "datatype": null,
+      "description": "prompt before every removal",
+      "required": false
+    },
+    {
+      "short": "f",
+      "long": "force",
+      "datatype": null,
+      "description": "ignore nonexistent files, no errors",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE...",
+      "description": "files or directories to remove",
+      "required": true
+    }
+  ]
+}

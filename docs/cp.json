@@ -1,0 +1,42 @@
+{
+  "name": "cp",
+  "summary": "copy files and directories",
+  "description": "Copy SOURCE to DEST, or multiple SOURCE(s) into a directory DEST.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "r",
+      "long": "recursive",
+      "datatype": null,
+      "description": "copy directories recursively",
+      "required": false
+    },
+    {
+      "short": "i",
+      "long": "interactive",
+      "datatype": null,
+      "description": "prompt before overwrite",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "SOURCE... DEST",
+      "description": "source file(s) and destination",
+      "required": true
+    }
+  ]
+}

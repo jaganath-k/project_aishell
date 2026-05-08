@@ -1,0 +1,28 @@
+{
+  "name": "export",
+  "summary": "set or display environment variables",
+  "description": "With no arguments, list all exported variables in 'declare -x' format. With NAME=VALUE, set the variable in the current shell environment. With NAME only, display that variable's current value.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "NAME[=VALUE]",
+      "description": "variable to export; NAME=VALUE sets it, NAME alone shows it",
+      "required": false
+    }
+  ]
+}

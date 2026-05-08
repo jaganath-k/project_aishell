@@ -1,0 +1,35 @@
+{
+  "name": "tail",
+  "summary": "output the last part of files",
+  "description": "Print the last 10 lines of each FILE to standard output. With more than one FILE, precede each with a header.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": null,
+      "datatype": "N",
+      "description": "print last N lines (default: 10)",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE...",
+      "description": "files to process",
+      "required": true
+    }
+  ]
+}

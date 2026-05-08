@@ -1,0 +1,42 @@
+{
+  "name": "kill",
+  "summary": "send a signal to a process",
+  "description": "Send SIGNAL to each PID. SIGNAL may be a name (TERM, KILL, HUP ...) or a number. Default signal is TERM. Use -l to list all signals.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "s",
+      "long": "signal",
+      "datatype": "SIGNAL",
+      "description": "signal name or number (default: TERM)",
+      "required": false
+    },
+    {
+      "short": "l",
+      "long": "list",
+      "datatype": null,
+      "description": "list signal names and numbers",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "PID",
+      "description": "process IDs to signal",
+      "required": false
+    }
+  ]
+}

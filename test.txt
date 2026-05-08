@@ -1,0 +1,21 @@
+The quick brown fox jumps over the lazy dog.
+ERROR: something went wrong on line 42
+warning: low disk space detected
+hello world
+foo bar baz
+HELLO WORLD
+Line number 7: this is a numbered line
+apple 100
+banana 200
+cherry 300
+error: connection refused
+ERROR: timeout after 30 seconds
+the rain in spain stays mainly in the plain
+Pack my box with five dozen liquor jugs.
+How vexingly quick daft zebras jump!
+foo
+bar
+baz
+foo bar
+hello from aishell
+end of file

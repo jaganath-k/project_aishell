@@ -1,0 +1,42 @@
+{
+  "name": "ls",
+  "summary": "list directory contents",
+  "description": "List information about files (the current directory by default).",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "a",
+      "long": "all",
+      "datatype": null,
+      "description": "do not ignore entries starting with .",
+      "required": false
+    },
+    {
+      "short": "l",
+      "long": null,
+      "datatype": null,
+      "description": "use a long listing format",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "[DIR...]",
+      "description": "directories to list (default: .)",
+      "required": false
+    }
+  ]
+}

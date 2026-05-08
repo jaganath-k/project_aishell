@@ -1,0 +1,28 @@
+{
+  "name": "unset",
+  "summary": "remove variables from the environment",
+  "description": "Remove each NAME from the current shell environment. Silently ignores variables that are not set.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "NAME",
+      "description": "variable(s) to remove from environment",
+      "required": true
+    }
+  ]
+}

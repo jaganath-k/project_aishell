@@ -1,0 +1,28 @@
+{
+  "name": "type",
+  "summary": "show how each name would be interpreted by the shell",
+  "description": "For each NAME, indicate whether it is a shell builtin (exit, prompt) or a registered command in the aishell registry. Registered commands also show their one-line summary.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "NAME",
+      "description": "name(s) to look up",
+      "required": true
+    }
+  ]
+}

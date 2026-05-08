@@ -1,0 +1,35 @@
+{
+  "name": "cat",
+  "summary": "concatenate files and print on stdout",
+  "description": "Concatenate FILE(s) to standard output. With no FILE, or when FILE is -, read standard input.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": null,
+      "datatype": null,
+      "description": "number all output lines",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE...",
+      "description": "files to concatenate",
+      "required": true
+    }
+  ]
+}

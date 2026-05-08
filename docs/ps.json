@@ -1,0 +1,42 @@
+{
+  "name": "ps",
+  "summary": "report process status",
+  "description": "List running processes. By default shows only processes owned by the current user. Use -e for all processes, -f for full format.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "e",
+      "long": "every",
+      "datatype": null,
+      "description": "show all processes (not just current user)",
+      "required": false
+    },
+    {
+      "short": "f",
+      "long": "full",
+      "datatype": null,
+      "description": "full format: include PPID column",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "json",
+      "datatype": null,
+      "description": "output in JSON format",
+      "required": false
+    }
+  ]
+}

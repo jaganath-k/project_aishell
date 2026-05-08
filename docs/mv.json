@@ -1,0 +1,35 @@
+{
+  "name": "mv",
+  "summary": "move or rename files",
+  "description": "Rename SOURCE to DEST, or move SOURCE(s) into a directory DEST.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "i",
+      "long": "interactive",
+      "datatype": null,
+      "description": "prompt before overwrite",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "SOURCE... DEST",
+      "description": "source file(s) and destination",
+      "required": true
+    }
+  ]
+}

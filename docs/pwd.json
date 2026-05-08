@@ -1,0 +1,21 @@
+{
+  "name": "pwd",
+  "summary": "print name of current/working directory",
+  "description": "Print the full filename of the current working directory.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    }
+  ]
+}

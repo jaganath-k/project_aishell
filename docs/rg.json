@@ -1,0 +1,70 @@
+{
+  "name": "rg",
+  "summary": "search files for a pattern",
+  "description": "Search for PATTERN in each PATH (or stdin). PATTERN is a POSIX extended regex by default; use -F for literal string matching. Use --json for machine-readable output, -r to recurse directories.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "F",
+      "long": "fixed-strings",
+      "datatype": null,
+      "description": "treat PATTERN as literal string, not regex",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "json",
+      "datatype": null,
+      "description": "output matches in JSON format",
+      "required": false
+    },
+    {
+      "short": "i",
+      "long": "ignore-case",
+      "datatype": null,
+      "description": "case-insensitive matching",
+      "required": false
+    },
+    {
+      "short": "l",
+      "long": "files-with-matches",
+      "datatype": null,
+      "description": "print only names of files with matches",
+      "required": false
+    },
+    {
+      "short": "r",
+      "long": "recursive",
+      "datatype": null,
+      "description": "recursively search directories",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "PATTERN",
+      "description": "search pattern (POSIX ERE or literal with -F)",
+      "required": true
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "PATH",
+      "description": "files or directories to search (default: stdin)",
+      "required": false
+    }
+  ]
+}

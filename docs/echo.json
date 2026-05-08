@@ -1,0 +1,35 @@
+{
+  "name": "echo",
+  "summary": "display a line of text",
+  "description": "Print each STRING to standard output, separated by spaces and followed by a newline. Use -n to suppress the trailing newline.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": null,
+      "datatype": null,
+      "description": "do not output the trailing newline",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "STRING",
+      "description": "strings to print",
+      "required": false
+    }
+  ]
+}

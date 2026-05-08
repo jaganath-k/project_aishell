@@ -1,0 +1,35 @@
+{
+  "name": "mkdir",
+  "summary": "make directories",
+  "description": "Create each DIR. With -p, create parent directories as needed and do not error if the directory already exists.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "p",
+      "long": "parents",
+      "datatype": null,
+      "description": "create parent directories as needed, no error if exists",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "DIR...",
+      "description": "directories to create",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "rmdir",
+  "summary": "remove empty directories",
+  "description": "Remove each DIR if it is empty. With -p, also remove each ancestor directory up the path.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "p",
+      "long": "parents",
+      "datatype": null,
+      "description": "remove DIR and its ancestors (e.g. a/b/c removes c, b, a)",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "DIR...",
+      "description": "directories to remove",
+      "required": true
+    }
+  ]
+}

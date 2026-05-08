@@ -1,0 +1,42 @@
+{
+  "name": "stat",
+  "summary": "display file or file system status",
+  "description": "Display detailed information about each FILE.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "c",
+      "long": "compact",
+      "datatype": null,
+      "description": "use compact terse output",
+      "required": false
+    },
+    {
+      "short": "f",
+      "long": "format",
+      "datatype": "FMT",
+      "description": "use specified format string",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE...",
+      "description": "files to stat",
+      "required": true
+    }
+  ]
+}

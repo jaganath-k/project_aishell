@@ -1,0 +1,28 @@
+{
+  "name": "jobs",
+  "summary": "list processes in current session",
+  "description": "List all processes that share the current terminal session (same SID). Use --json for machine-readable output.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "json",
+      "datatype": null,
+      "description": "output in JSON format",
+      "required": false
+    }
+  ]
+}

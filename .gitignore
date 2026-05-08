@@ -1,0 +1,20 @@
+# Build output
+aishell
+*.o
+*.a
+
+# Standalone command binaries (if ever built separately)
+ls cat stat head tail cp mv rm mkdir rmdir touch
+rg ps kill wait jobs cd pwd echo
+env export unset type
+
+# Editor / IDE
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary / test output
+/tmp/
+*.tmp

@@ -1,0 +1,28 @@
+{
+  "name": "wait",
+  "summary": "wait for process completion",
+  "description": "Wait for each PID to complete and report its exit status. With no PIDs, waits for all child processes of the current shell.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "PID",
+      "description": "PIDs to wait for (default: all child processes)",
+      "required": false
+    }
+  ]
+}
