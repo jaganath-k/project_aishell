@@ -64,6 +64,15 @@ extern void register_env_command(void);
 extern void register_export_command(void);
 extern void register_unset_command(void);
 extern void register_type_command(void);
+extern void register_edit_replace_line_command(void);
+extern void register_edit_insert_line_command(void);
+extern void register_edit_delete_line_command(void);
+extern void register_edit_replace_command(void);
+extern void register_wc_command(void);
+extern void register_sort_command(void);
+extern void register_date_command(void);
+extern void register_find_command(void);
+extern void register_edit_show_command(void);
 
 static void register_all_commands(void) {
     register_ls_command();
@@ -89,6 +98,15 @@ static void register_all_commands(void) {
     register_export_command();
     register_unset_command();
     register_type_command();
+    register_edit_replace_line_command();
+    register_edit_insert_line_command();
+    register_edit_delete_line_command();
+    register_edit_replace_command();
+    register_wc_command();
+    register_sort_command();
+    register_date_command();
+    register_find_command();
+    register_edit_show_command();
 }
 
 /* =========================================================================

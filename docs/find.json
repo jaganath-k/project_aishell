@@ -1,0 +1,49 @@
+{
+  "name": "find",
+  "summary": "search for files in a directory hierarchy",
+  "description": "Walk the directory tree rooted at PATH (default: .) and print each matching entry. Use -n for shell-glob name filtering, -t to restrict by type (f/d/l), and --maxdepth to limit recursion depth.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "PATH",
+      "description": "starting directory (default: .)",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": "name",
+      "datatype": "PATTERN",
+      "description": "match filename against shell glob (e.g. '*.c')",
+      "required": false
+    },
+    {
+      "short": "t",
+      "long": "type",
+      "datatype": "TYPE",
+      "description": "filter by type: f=regular file, d=directory, l=symlink",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "maxdepth",
+      "datatype": "N",
+      "description": "descend at most N directory levels (0 = starting path only)",
+      "required": false
+    }
+  ]
+}

@@ -9,6 +9,10 @@ SRCS = aishell_main.c \
        cmd_rg.c cmd_ps.c cmd_kill.c cmd_wait.c cmd_jobs.c \
        cmd_cd.c cmd_pwd.c cmd_echo.c \
        cmd_env.c cmd_export.c cmd_unset.c cmd_type.c \
+       cmd_edit_replace_line.c cmd_edit_insert_line.c \
+       cmd_edit_delete_line.c cmd_edit_replace.c \
+       edit_utils.c \
+       cmd_wc.c cmd_sort.c cmd_date.c cmd_find.c cmd_edit_show.c \
        cmd_help_json.c registry.c
 
 .PHONY: all clean

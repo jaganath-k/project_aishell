@@ -1,0 +1,42 @@
+{
+  "name": "edit-replace-line",
+  "summary": "replace a line in a file by line number",
+  "description": "Replace the entire content of line N in FILE with TEXT. Line numbers are 1-indexed. The file is updated atomically via a temp file and rename.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": "line",
+      "datatype": "N",
+      "description": "line number to replace (1-indexed)",
+      "required": true
+    },
+    {
+      "short": "t",
+      "long": "text",
+      "datatype": "TEXT",
+      "description": "replacement text for the line",
+      "required": true
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE",
+      "description": "file to edit",
+      "required": true
+    }
+  ]
+}

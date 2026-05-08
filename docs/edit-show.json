@@ -1,0 +1,42 @@
+{
+  "name": "edit-show",
+  "summary": "display a file with line numbers (optionally a range)",
+  "description": "Print FILE to stdout with line numbers. With no options, show all lines. Use -n N to start at line N and -e E to end at line E. Useful for previewing a file before using the other edit-* commands.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": "line",
+      "datatype": "N",
+      "description": "first line to display (default: 1)",
+      "required": false
+    },
+    {
+      "short": "e",
+      "long": "end",
+      "datatype": "E",
+      "description": "last line to display (default: last line)",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE",
+      "description": "file to display",
+      "required": true
+    }
+  ]
+}

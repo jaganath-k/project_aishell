@@ -3,7 +3,7 @@
 
 #include "cmd_spec.h"
 
-#define MAX_COMMANDS 32
+#define MAX_COMMANDS 64
 
 static const cmd_spec_t *command_registry[MAX_COMMANDS];
 static size_t command_count;
