@@ -1,0 +1,49 @@
+{
+  "name": "edit-insert-line",
+  "summary": "insert a line into a file at a given position",
+  "description": "Insert TEXT before line N in FILE. Use -a to insert after line N. Line numbers are 1-indexed. All subsequent lines shift down by one. The file is updated atomically via a temp file and rename.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": "line",
+      "datatype": "N",
+      "description": "reference line number (1-indexed)",
+      "required": true
+    },
+    {
+      "short": "a",
+      "long": "after",
+      "datatype": null,
+      "description": "insert after line N (default: before line N)",
+      "required": false
+    },
+    {
+      "short": "t",
+      "long": "text",
+      "datatype": "TEXT",
+      "description": "text to insert",
+      "required": true
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE",
+      "description": "file to edit",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "name": "sort",
+  "summary": "sort lines of text files",
+  "description": "Sort lines from FILE(s) and write sorted output to stdout. With no FILE, read from stdin. Use -n for numeric sort, -r to reverse, -u to suppress duplicate lines, -k N to sort by the Nth whitespace-delimited field.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "r",
+      "long": "reverse",
+      "datatype": null,
+      "description": "reverse the sort order",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": "numeric-sort",
+      "datatype": null,
+      "description": "compare by numeric value",
+      "required": false
+    },
+    {
+      "short": "u",
+      "long": "unique",
+      "datatype": null,
+      "description": "output only the first of equal lines",
+      "required": false
+    },
+    {
+      "short": "k",
+      "long": "key",
+      "datatype": "N",
+      "description": "sort by field N (1-indexed, whitespace-delimited)",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE...",
+      "description": "files to sort (default: stdin)",
+      "required": false
+    }
+  ]
+}

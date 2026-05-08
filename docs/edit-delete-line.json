@@ -1,0 +1,42 @@
+{
+  "name": "edit-delete-line",
+  "summary": "delete one or more lines from a file by line number",
+  "description": "Delete line N from FILE. With -e E, delete the range N through E inclusive. Line numbers are 1-indexed. All subsequent lines shift up. The file is updated atomically via a temp file and rename.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "n",
+      "long": "line",
+      "datatype": "N",
+      "description": "first line to delete (1-indexed)",
+      "required": true
+    },
+    {
+      "short": "e",
+      "long": "end",
+      "datatype": "E",
+      "description": "last line to delete inclusive (default: same as -n)",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE",
+      "description": "file to edit",
+      "required": true
+    }
+  ]
+}

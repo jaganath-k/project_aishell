@@ -1,0 +1,49 @@
+{
+  "name": "wc",
+  "summary": "print line, word, and byte counts for each file",
+  "description": "Print newline, word, and byte counts for each FILE. With no FILE, read from standard input. With no flags, print all three counts. With multiple files, print a total line at the end.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "l",
+      "long": "lines",
+      "datatype": null,
+      "description": "print the newline count",
+      "required": false
+    },
+    {
+      "short": "w",
+      "long": "words",
+      "datatype": null,
+      "description": "print the word count",
+      "required": false
+    },
+    {
+      "short": "c",
+      "long": "bytes",
+      "datatype": null,
+      "description": "print the byte count",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE...",
+      "description": "files to count (default: stdin)",
+      "required": false
+    }
+  ]
+}

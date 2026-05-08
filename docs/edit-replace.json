@@ -1,0 +1,56 @@
+{
+  "name": "edit-replace",
+  "summary": "find and replace text in a file using a regex pattern",
+  "description": "Search every line of FILE for PATTERN (POSIX extended regex) and replace with TEXT. By default replaces only the first match per line; use -g to replace all. Use -i for case-insensitive matching. The file is updated atomically via a temp file and rename.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "p",
+      "long": "pattern",
+      "datatype": "PATTERN",
+      "description": "POSIX extended regex to search for",
+      "required": true
+    },
+    {
+      "short": "r",
+      "long": "replacement",
+      "datatype": "TEXT",
+      "description": "replacement text",
+      "required": true
+    },
+    {
+      "short": "g",
+      "long": "global",
+      "datatype": null,
+      "description": "replace all occurrences per line (default: first)",
+      "required": false
+    },
+    {
+      "short": "i",
+      "long": "ignore-case",
+      "datatype": null,
+      "description": "case-insensitive matching",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": null,
+      "datatype": "FILE",
+      "description": "file to edit",
+      "required": true
+    }
+  ]
+}

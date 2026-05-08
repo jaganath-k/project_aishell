@@ -1,0 +1,35 @@
+{
+  "name": "date",
+  "summary": "print the current date and time",
+  "description": "Print the current date and time. Use -u for UTC output. Use -f FMT to specify a custom strftime format string, e.g. -f \"%%Y-%%m-%%d\" for ISO 8601 date.",
+  "options": [
+    {
+      "short": "h",
+      "long": "help",
+      "datatype": null,
+      "description": "show help and exit",
+      "required": false
+    },
+    {
+      "short": null,
+      "long": "help-json",
+      "datatype": null,
+      "description": "print machine-readable help as JSON",
+      "required": false
+    },
+    {
+      "short": "u",
+      "long": "utc",
+      "datatype": null,
+      "description": "display time in UTC instead of local time",
+      "required": false
+    },
+    {
+      "short": "f",
+      "long": "format",
+      "datatype": "FMT",
+      "description": "strftime format string (default: \"%a %b %e %H:%M:%S %Z %Y\")",
+      "required": false
+    }
+  ]
+}
