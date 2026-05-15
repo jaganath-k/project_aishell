@@ -101,6 +101,140 @@ make
 
 ---
 
+## Package Manager (`pkg`)
+
+`pkg` is a standalone binary that manages the full lifecycle of aishell packages. It is separate from the shell binary but integrates with the REPL — typing `pkg ...` inside aishell dispatches to the `pkg` binary automatically.
+
+### Install layout
+
+```
+~/.mysh/
+├── bin/               ← symlinks to installed executables (prepended to PATH)
+├── pkgs/
+│   └── <name>-<ver>/  ← extracted package files
+└── pkgdb.txt          ← installed package database (name version, one per line)
+```
+
+### pkg commands
+
+| Command | Description |
+|---------|-------------|
+| `pkg build <src-dir> <out.tar.gz>` | Package a source directory into a distributable archive |
+| `pkg install <archive.tar.gz>` | Install a package from a local archive |
+| `pkg list` | Show all installed packages |
+| `pkg remove <name>` | Uninstall a package (removes symlinks and files) |
+| `pkg check-update <name>` | Query the registry and report if a newer version is available |
+| `pkg upgrade <name>` | Download and install the latest version from the registry |
+
+### pkg.json — package metadata
+
+Every package ships a `pkg.json` at the root of its source directory:
+
+```json
+{
+  "name": "aishell",
+  "version": "2.0",
+  "description": "BusyBox-style shell with 32 built-in commands",
+  "files": ["aishell"],
+  "docs": ["README.md"]
+}
+```
+
+- `files` — executables to symlink into `~/.mysh/bin/`
+- `version` — compared numerically (dot-separated) during `check-update`
+
+### Build pkg
+
+```sh
+gcc -Wall -Wextra -std=c11 -o pkg pkg.c
+```
+
+### Usage examples
+
+```sh
+# Build a package from source
+./pkg build . ~/aishell-2.0.tar.gz
+
+# Install from a local archive
+./pkg install ~/aishell-2.0.tar.gz
+
+# List installed packages
+./pkg list
+# NAME                     VERSION
+# ------------------------ -------
+# aishell                  2.0
+
+# Check if an update is available
+./pkg check-update aishell
+# Update available: aishell  1.0 -> 2.0
+#   Run: pkg upgrade aishell
+
+# Upgrade to the latest version from the registry
+./pkg upgrade aishell
+# pkg: upgrading aishell  1.0 -> 2.0
+# pkg: downloading http://localhost:3000/files/aishell-2.0.tar.gz ...
+# pkg: aishell-2.0 installed successfully
+
+# Remove a package
+./pkg remove aishell
+```
+
+### Using pkg inside the aishell REPL
+
+`~/.mysh/bin` is prepended to `$PATH` at shell startup, so installed packages and the `pkg` binary itself are available as first-class shell commands:
+
+```sh
+./aishell
+jshell% pkg list
+jshell% pkg check-update aishell
+jshell% pkg upgrade aishell
+```
+
+---
+
+## Registry Server
+
+The registry is a minimal Node.js + Express HTTP server that acts as the source of truth for available packages and download URLs.
+
+### Setup
+
+```sh
+cd registry
+npm install        # first time only
+node server.js
+# aishell registry  →  http://localhost:3000
+```
+
+### Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /packages` | List all available packages |
+| `GET /packages/:name` | Get metadata for a single package |
+| `GET /files/<archive>.tar.gz` | Download a package archive |
+
+```sh
+curl -s http://localhost:3000/packages/aishell
+# {"name":"aishell","latestVersion":"2.0","downloadUrl":"http://localhost:3000/files/aishell-2.0.tar.gz",...}
+```
+
+### Adding a package to the registry
+
+1. Build the archive: `./pkg build <src-dir> registry/files/<name>-<ver>.tar.gz`
+2. Add an entry to `packages[]` in `registry/server.js`
+3. Restart the server: `node server.js`
+
+### Registry layout
+
+```
+registry/
+├── server.js          ← Express server (in-memory package list)
+├── package.json       ← npm metadata
+└── files/             ← .tar.gz archives served statically (gitignored)
+```
+
+---
+
 ## Build
 
 **Requirements:** `gcc`, `make`, `argtable3`
@@ -192,6 +326,14 @@ jshell% type exit
 ./aishell sort --help
 ./aishell find --help
 ./aishell edit-show --help-json
+
+# Package management (start registry server first)
+./pkg build . ~/aishell-2.0.tar.gz
+./pkg install ~/aishell-2.0.tar.gz
+./pkg list
+./pkg check-update aishell
+./pkg upgrade aishell
+./pkg remove aishell
 ```
 
 ---
@@ -227,12 +369,15 @@ getline (EINTR-safe)
 ### Source layout
 
 ```
-aishell_main.c           — REPL + multi-call dispatch
+aishell_main.c           — REPL + multi-call dispatch + pkg integration
 cmd_<name>.c             — one file per command (32 total)
 edit_utils.c/h           — shared file I/O helpers for edit-* commands
 cmd_spec.h               — cmd_spec_t definition + registry API
 cmd_help_json.c/h        — shared --help-json implementation
 registry.c               — register_command / find_command / for_each_command (cap: 64)
+pkg.c                    — standalone package manager binary (6 subcommands)
+pkg.json                 — aishell package descriptor
+registry/                — Node.js + Express HTTP registry server
 docs/                    — pre-generated --help-json snapshots (32 JSON files)
 ```
 

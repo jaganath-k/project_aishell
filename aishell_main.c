@@ -9,6 +9,7 @@
 #include <glob.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "cmd_spec.h"
 
@@ -115,6 +116,49 @@ static void register_all_commands(void) {
 static const char *cmd_basename(const char *path) {
     const char *s = strrchr(path, '/');
     return s ? s + 1 : path;
+}
+
+/* =========================================================================
+ * prepend_mysh_bin_to_path — add ~/.mysh/bin to the front of PATH once
+ * on shell startup so that installed packages (including pkg itself) are
+ * found by execvp without the user having to set anything manually.
+ * ===================================================================== */
+static void prepend_mysh_bin_to_path(void) {
+    const char *home = getenv("HOME");
+    if (!home) return;
+
+    char mysh_bin[512];
+    snprintf(mysh_bin, sizeof(mysh_bin), "%s/.mysh/bin", home);
+
+    const char *old = getenv("PATH");
+    char new_path[4096];
+    if (old && old[0])
+        snprintf(new_path, sizeof(new_path), "%s:%s", mysh_bin, old);
+    else
+        snprintf(new_path, sizeof(new_path), "%s", mysh_bin);
+
+    setenv("PATH", new_path, 1 /* overwrite */);
+}
+
+/* =========================================================================
+ * exec_external — fork + execvp an external program, wait for it.
+ *
+ * Called after I/O redirections are already in place (dup2 done by the
+ * caller), so the child inherits the correct stdin/stdout automatically.
+ * Returns the child's exit status, or 1 on fork/wait failure.
+ * ===================================================================== */
+static int exec_external(cmd_t *cmd) {
+    pid_t pid = fork();
+    if (pid < 0) { perror("aishell: fork"); return 1; }
+    if (pid == 0) {
+        /* Child: exec replaces us; argv[0] is searched via PATH */
+        execvp(cmd->argv[0], cmd->argv);
+        perror(cmd->argv[0]);
+        _exit(127);
+    }
+    int status;
+    if (waitpid(pid, &status, 0) < 0) { perror("aishell: waitpid"); return 1; }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }
 
 /* =========================================================================
@@ -327,6 +371,11 @@ static int execute_command(cmd_t *cmd, char *prompt, size_t prompt_sz) {
     const cmd_spec_t *spec = find_command(cmdname);
     if (spec) {
         ret = spec->run(cmd->argc, cmd->argv);
+    } else if (strcmp(cmdname, "pkg") == 0) {
+        /* External program: fork + execvp searches PATH, which includes
+         * ~/.mysh/bin (prepended at startup), so the pkg binary installed
+         * there is found automatically. */
+        ret = exec_external(cmd);
     } else {
         fprintf(stderr, "aishell: %s: command not found\n", cmd->argv[0]);
         ret = 127;
@@ -423,6 +472,7 @@ static void shell_repl(void) {
  *  3. Interactive REPL : ./aishell  (no arguments)
  * ===================================================================== */
 int main(int argc, char **argv) {
+    prepend_mysh_bin_to_path();   /* make ~/.mysh/bin visible to execvp */
     register_all_commands();
 
     const char *base = cmd_basename(argv[0]);

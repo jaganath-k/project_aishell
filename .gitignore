@@ -18,3 +18,7 @@ env export unset type
 # Temporary / test output
 /tmp/
 *.tmp
+
+# Registry — Node dependencies and uploaded tarballs
+registry/node_modules/
+registry/files/*.tar.gz

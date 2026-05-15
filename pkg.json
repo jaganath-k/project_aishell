@@ -1,0 +1,7 @@
+{
+  "name": "aishell",
+  "version": "1.0",
+  "description": "BusyBox-style shell with 32 built-in commands",
+  "files": ["aishell"],
+  "docs": ["README.md"]
+}
