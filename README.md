@@ -1,8 +1,8 @@
-# aishell — week4
+# week5 — Process Management
 
 A modular, BusyBox-style shell implemented in C. All 32 commands compile into a **single `aishell` binary** that runs as an interactive REPL or dispatches subcommands directly.
 
-Builds on [aishell-week2](https://github.com/jaganath-k/aishell-week2), adding a complete command set, glob wildcard expansion, I/O redirection, file editing, and a two-phase tokeniser pipeline that mirrors the reference Unix shell architecture.
+Builds on [aishell-week4](https://github.com/jaganath-k/aishell-week2), adding full process management: `fork`/`exec` for external commands, multi-stage pipes, I/O redirection (`>`, `>>`, `<`), background jobs with `&`, a SIGCHLD handler for zombie prevention, and Ctrl+C isolation so the shell survives signals that kill foreground children.
 
 ---
 
@@ -262,12 +262,16 @@ Build flags: `-Wall -Wextra -std=c11`, linked with `-largtable3`.
 
 | Feature | Detail |
 |---------|--------|
-| Signal masking | SIGINT, SIGQUIT, SIGTSTP blocked — shell survives Ctrl-C / Ctrl-Z |
-| Colored prompt | Yellow ANSI on terminals; plain text when piped |
+| Signal handling | SIGINT/SIGQUIT/SIGTSTP ignored in shell (`SIG_IGN`); children restore `SIG_DFL` so Ctrl-C kills only the foreground process |
+| SIGCHLD handler | `waitpid(-1, WNOHANG)` loop reaps all finished children automatically — no zombie processes |
+| Colored prompt | Yellow ANSI on terminals; written to stderr when piped (stdout stays clean) |
 | Default prompt | `jshell% ` — change with `prompt STRING` |
 | Sequential commands | `cmd1 ; cmd2` or `cmd1;cmd2` (spaces optional) |
-| Output redirection | `cmd > file` or `cmd>file` |
-| Input redirection  | `cmd < file` or `cmd<file` |
+| Pipes | `cmd1 \| cmd2 \| cmd3` — multi-stage pipelines with full stdio buffer flushing before each `fork` |
+| Background jobs | `cmd &` — returns `[N] PID` immediately; job table tracks state |
+| Output redirection | `cmd > file` (truncate) or `cmd >> file` (append) |
+| Input redirection  | `cmd < file` |
+| In-process redirect | `>`, `>>`, `<` work for registry commands (echo, pwd, wc, …) via fd save/restore with `fflush` before restore |
 | Glob wildcards | `*.c`, `*.h`, `?` expanded via `glob(GLOB_NOCHECK)` |
 | Path-prefix strip | `./ls`, `/usr/bin/ls`, and `ls` all resolve to the same command |
 
@@ -276,6 +280,17 @@ Build flags: `-Wall -Wextra -std=c11`, linked with `-largtable3`.
 ## Usage Examples
 
 ```sh
+# Process management and pipelines (week5)
+./aishell                          # interactive REPL
+jshell% sleep 5 &                  # background job — returns [1] PID
+jshell% jobs                       # list running jobs
+jshell% kill -9 <pid>              # send signal to a process
+jshell% ls | sort | head -5        # multi-stage pipeline
+jshell% echo hello > /tmp/out.txt  # output redirect (truncate)
+jshell% echo world >> /tmp/out.txt # output redirect (append)
+jshell% wc -l < /tmp/out.txt       # input redirect
+jshell% ls *.c | wc -l             # glob + pipe
+
 # File operations
 ./aishell ls -la .
 ./aishell head -n 5 test.txt
@@ -360,16 +375,37 @@ Every command follows the **APPANATOMY** pattern (see `APPANATOMY.md`):
 
 ```
 getline (EINTR-safe)
-  → preprocess()        pad ; < > with spaces
+  → preprocess()        pad ; < > >> & | with spaces
   → tokenise()          flat token[] array       [mirrors Token.c]
   → separate_commands() cmd_t[] structs           [mirrors Command.c]
   → execute_command()   registry dispatch         [mirrors Builtin.c]
 ```
 
+### Process management (week5)
+
+```
+execute_command()
+  ├── pipe_next set on any cmd_t? → run_pipeline()
+  │     ├── SIGCHLD blocked during pipeline setup (prevents handler racing waitpid)
+  │     ├── fflush(NULL) before first fork (prevents stdio buffer contamination)
+  │     ├── each child: SIG_DFL restore → dup2 pipe fds → close all → exec
+  │     ├── parent closes all pipe ends, then waitpid loop (SIGCHLD unblocked after)
+  │     └── returns exit status of the last stage
+  └── single command → lsh_execute()
+        ├── builtin? (exit, help, prompt) → run in parent
+        ├── registry command? → in_process: dup/restore fds + fflush before restore
+        └── external? → lsh_launch(): fork → SIG_DFL → dup2 → execvp
+```
+
+**Signal design:**
+- Shell sets SIGINT/SIGQUIT/SIGTSTP to `SIG_IGN` (not `sigprocmask`) — `exec`'d children can override `SIG_IGN` with `SIG_DFL`; they cannot unblock a blocked signal
+- Every `fork` child restores SIGINT and SIGQUIT to `SIG_DFL` before `execvp`
+- SIGCHLD handler uses `waitpid(-1, WNOHANG)` loop with `SA_RESTART | SA_NOCLDSTOP`
+
 ### Source layout
 
 ```
-aishell_main.c           — REPL + multi-call dispatch + pkg integration
+aishell_main.c           — REPL + multi-call dispatch + pkg integration + process management
 cmd_<name>.c             — one file per command (32 total)
 edit_utils.c/h           — shared file I/O helpers for edit-* commands
 cmd_spec.h               — cmd_spec_t definition + registry API
@@ -379,6 +415,7 @@ pkg.c                    — standalone package manager binary (6 subcommands)
 pkg.json                 — aishell package descriptor
 registry/                — Node.js + Express HTTP registry server
 docs/                    — pre-generated --help-json snapshots (32 JSON files)
+test_week5.sh            — bash test suite (25 checks, all features)
 ```
 
 ---
