@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <glob.h>
+#include <stdint.h>
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -55,9 +57,15 @@ typedef struct {
 
 typedef enum { JOB_RUNNING = 0, JOB_DONE, JOB_STOPPED } job_status_t;
 
+/* JOB_TYPE_NONE == 0 doubles as the free-slot sentinel (zero-initialised by
+ * the static declaration of job_table below). */
+typedef enum { JOB_TYPE_NONE = 0, JOB_TYPE_PROCESS, JOB_TYPE_THREAD } job_type_t;
+
 typedef struct {
     int          id;             /* job number shown to the user: [1], [2], … */
-    pid_t        pid;            /* process ID of the background child */
+    job_type_t   job_type;       /* PROCESS (fork) or THREAD (pthread) or NONE */
+    pid_t        pid;            /* set for JOB_TYPE_PROCESS */
+    pthread_t    tid;            /* set for JOB_TYPE_THREAD  */
     char         command[256];   /* command string for display */
     job_status_t status;
     int          exit_code;
@@ -66,27 +74,111 @@ typedef struct {
 static job_t job_table[MAX_JOBS];
 static int   job_count = 0;     /* next job id to assign */
 
-/* Add a new entry; returns the job id assigned (1-based). */
+/* Protects all reads and writes of job_table[] and job_count.
+ * Must NOT be held while calling blocking syscalls (waitpid, read, write).
+ * jobs_mark_done() is the one exception — it must be called with the lock
+ * already held by the caller (the sigchld_reaper_thread). */
+static pthread_mutex_t job_table_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Self-pipe used to safely signal the reaper thread from the SIGCHLD handler.
+ * Signal handlers may only call async-signal-safe functions; pthread_mutex_lock
+ * is NOT async-signal-safe, so the handler writes one byte here instead of
+ * touching the job table directly.  The reaper thread blocks on read() and
+ * does the actual waitpid + job table update with the mutex held. */
+static int sigchld_pipe[2] = {-1, -1};
+
+/* =========================================================================
+ * cwd_mutex + g_cwd — mutex-protected current working directory snapshot.
+ *
+ * WHY a separate buffer instead of calling getcwd() directly in the prompt?
+ *   getcwd() is a syscall that can return different results across calls if
+ *   another thread calls chdir() between them.  Storing the result in g_cwd
+ *   immediately after each successful chdir() and reading it under the same
+ *   mutex gives the prompt a consistent, atomic snapshot.
+ *
+ * WHY is the thread approach still safe for foreground cd?
+ *   lsh_execute() calls pthread_join() on the cd thread before returning to
+ *   the REPL loop.  The join guarantees the cd thread has already returned —
+ *   and therefore chdir() has already completed — before the shell dispatches
+ *   the next command.  No two commands ever overlap, so there is no real
+ *   concurrency on the working directory for foreground cd.  The mutex on
+ *   g_cwd is still correct practice: it makes the invariant explicit and
+ *   keeps the code safe if the design ever changes.
+ * ===================================================================== */
+static pthread_mutex_t cwd_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char            g_cwd[4096] = "";
+
+/* Serialises the dup2 → run → restore sequence for built-in pipeline stages.
+ * Declared here (not near run_pipeline) so lsh_exit() can destroy it. */
+static pthread_mutex_t pipeline_io_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Add a background process entry; returns the job id (1-based). */
 static int jobs_add(pid_t pid, const char *cmdstr) {
+    pthread_mutex_lock(&job_table_mutex);
+    int result = -1;
     for (int i = 0; i < MAX_JOBS; i++) {
-        if (job_table[i].pid == 0) {
-            job_table[i].id       = ++job_count;
-            job_table[i].pid      = pid;
-            job_table[i].status   = JOB_RUNNING;
+        if (job_table[i].job_type == JOB_TYPE_NONE) {
+            job_table[i].id        = ++job_count;
+            job_table[i].job_type  = JOB_TYPE_PROCESS;
+            job_table[i].pid       = pid;
+            job_table[i].tid       = 0;
+            job_table[i].status    = JOB_RUNNING;
             job_table[i].exit_code = 0;
             snprintf(job_table[i].command, sizeof(job_table[i].command),
                      "%s", cmdstr);
-            return job_table[i].id;
+            result = job_table[i].id;
+            break;
         }
     }
-    fprintf(stderr, "aishell: job table full\n");
-    return -1;
+    pthread_mutex_unlock(&job_table_mutex);
+    if (result < 0) fprintf(stderr, "aishell: job table full\n");
+    return result;
 }
 
-/* Mark a job done (called from SIGCHLD handler). */
+/* Reserve a thread job slot BEFORE pthread_create so bta->job_id is valid
+ * as soon as the thread starts.  The real tid is filled in afterwards by
+ * jobs_set_thread_tid().  Returns the job id (1-based), or -1 if full. */
+static int jobs_reserve_thread_slot(const char *cmdstr) {
+    pthread_mutex_lock(&job_table_mutex);
+    int result = -1;
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (job_table[i].job_type == JOB_TYPE_NONE) {
+            job_table[i].id        = ++job_count;
+            job_table[i].job_type  = JOB_TYPE_THREAD;
+            job_table[i].pid       = 0;
+            job_table[i].tid       = 0;   /* filled by jobs_set_thread_tid */
+            job_table[i].status    = JOB_RUNNING;
+            job_table[i].exit_code = 0;
+            snprintf(job_table[i].command, sizeof(job_table[i].command),
+                     "%s", cmdstr);
+            result = job_table[i].id;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&job_table_mutex);
+    if (result < 0) fprintf(stderr, "aishell: job table full\n");
+    return result;
+}
+
+/* Store the real pthread_t after a successful pthread_create. */
+static void jobs_set_thread_tid(int job_id, pthread_t tid) {
+    pthread_mutex_lock(&job_table_mutex);
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (job_table[i].job_type == JOB_TYPE_THREAD &&
+            job_table[i].id == job_id) {
+            job_table[i].tid = tid;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&job_table_mutex);
+}
+
+/* Mark a process job done — CALLER must hold job_table_mutex.
+ * Called only from sigchld_reaper_thread. */
 static void jobs_mark_done(pid_t pid, int exit_code) {
     for (int i = 0; i < MAX_JOBS; i++) {
-        if (job_table[i].pid == pid) {
+        if (job_table[i].job_type == JOB_TYPE_PROCESS &&
+            job_table[i].pid == pid) {
             job_table[i].status    = JOB_DONE;
             job_table[i].exit_code = exit_code;
             return;
@@ -109,27 +201,34 @@ static void jobs_mark_done(pid_t pid, int exit_code) {
  *   3. Free the slot for any job whose status is Done.
  * ===================================================================== */
 static void jobs_print_and_prune(void) {
-    for (int i = 0; i < MAX_JOBS; i++) {
-        if (job_table[i].pid == 0) continue;
+    /* Collect tids of Done thread jobs so we can join them outside the lock.
+     * pthread_join() blocks; holding job_table_mutex across it would prevent
+     * bg_builtin_cleanup() (which also locks job_table_mutex) from running in
+     * a still-running thread — deadlock.  We snapshot and clear the slot under
+     * the lock, then join after releasing it. */
+    pthread_t done_tids[MAX_JOBS];
+    int       ndone = 0;
 
-        /* Active poll: did this child exit since we last checked? */
-        if (job_table[i].status == JOB_RUNNING) {
+    pthread_mutex_lock(&job_table_mutex);
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (job_table[i].job_type == JOB_TYPE_NONE) continue;
+
+        /* Process jobs: poll waitpid to catch exits the SIGCHLD handler missed */
+        if (job_table[i].job_type == JOB_TYPE_PROCESS &&
+            job_table[i].status   == JOB_RUNNING) {
             int   wstatus;
             pid_t r = waitpid(job_table[i].pid, &wstatus, WNOHANG);
             if (r > 0) {
-                /* Child has exited — update the table entry */
                 job_table[i].status    = JOB_DONE;
                 job_table[i].exit_code = WIFEXITED(wstatus)
                                          ? WEXITSTATUS(wstatus)
                                          : 128 + WTERMSIG(wstatus);
             } else if (r < 0 && errno == ECHILD) {
-                /* Already reaped by SIGCHLD handler — mark done */
                 job_table[i].status = JOB_DONE;
             }
-            /* r == 0 → still running, leave status as JOB_RUNNING */
         }
+        /* Thread jobs: status is updated by bg_builtin_cleanup when they exit */
 
-        /* Format status label */
         char label[16];
         if (job_table[i].status == JOB_RUNNING) {
             snprintf(label, sizeof(label), "Running");
@@ -139,33 +238,79 @@ static void jobs_print_and_prune(void) {
             snprintf(label, sizeof(label), "Done(%d)", job_table[i].exit_code);
         }
 
-        printf("[%d]  %-10s %s &\n",
-               job_table[i].id,
-               label,
-               job_table[i].command);
+        const char *type_str = (job_table[i].job_type == JOB_TYPE_THREAD)
+                                ? "Thread" : "Process";
+        printf("[%d]  %-10s %-8s %s &\n",
+               job_table[i].id, label, type_str, job_table[i].command);
 
-        /* Free the slot once the job is confirmed done */
-        if (job_table[i].status == JOB_DONE)
-            job_table[i].pid = 0;
+        /* Free the slot once the job is confirmed done.
+         * For joinable thread jobs, stash the tid for joining after unlock. */
+        if (job_table[i].status == JOB_DONE) {
+            if (job_table[i].job_type == JOB_TYPE_THREAD &&
+                job_table[i].tid != 0)
+                done_tids[ndone++] = job_table[i].tid;
+            job_table[i].job_type = JOB_TYPE_NONE;
+        }
     }
+    pthread_mutex_unlock(&job_table_mutex);
+
+    /* Join outside the lock: bg_builtin_cleanup has already run (that's what
+     * set status to JOB_DONE), so these joins return almost immediately. */
+    for (int i = 0; i < ndone; i++)
+        pthread_join(done_tids[i], NULL);
 }
 
 /* =========================================================================
- * SIGCHLD handler — reap background children asynchronously.
+ * SIGCHLD handler — safe self-pipe notification.
  *
- * Using WNOHANG inside the handler avoids blocking the shell while still
- * preventing zombie processes. The loop drains all pending exits in one
- * signal delivery (multiple children can exit between two deliveries).
+ * pthread_mutex_lock is NOT async-signal-safe (POSIX.1-2017 §2.4.3).
+ * Calling it here would risk deadlock: if the handler fires while a thread
+ * holds job_table_mutex, the handler's lock attempt blocks forever.
+ *
+ * Solution — write one byte to a non-blocking pipe.  The write() syscall
+ * IS async-signal-safe.  sigchld_reaper_thread reads from the other end
+ * and does the waitpid + job table update with the mutex held safely.
  * ===================================================================== */
 static void sigchld_handler(int sig) {
     (void)sig;
-    int   status;
-    pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        int code = WIFEXITED(status) ? WEXITSTATUS(status)
-                                     : 128 + WTERMSIG(status);
-        jobs_mark_done(pid, code);
+    char byte = 1;
+    /* O_NONBLOCK prevents blocking if the pipe buffer is full (unlikely but
+     * possible if many children exit before the reaper thread drains them). */
+    write(sigchld_pipe[1], &byte, 1);
+}
+
+/* =========================================================================
+ * sigchld_reaper_thread — processes SIGCHLD notifications from the pipe.
+ *
+ * Blocks on read() until the signal handler writes a byte, then drains all
+ * finished children via waitpid(-1, WNOHANG) in a loop.  Acquiring the
+ * mutex here is safe because this is a normal thread context, not a signal
+ * handler — pthread_mutex_lock is allowed.
+ * ===================================================================== */
+static void *sigchld_reaper_thread(void *arg) {
+    (void)arg;
+
+    /* Block every signal in this thread.  Signals are process-wide but
+     * delivered to one thread.  Blocking here ensures SIGCHLD always goes
+     * to the main thread (which has the sigaction handler installed) and
+     * never interrupts this thread mid-mutex-lock. */
+    sigset_t all;
+    sigfillset(&all);
+    pthread_sigmask(SIG_BLOCK, &all, NULL);
+
+    char byte;
+    while (read(sigchld_pipe[0], &byte, 1) == 1) {
+        int   wstatus;
+        pid_t pid;
+        pthread_mutex_lock(&job_table_mutex);
+        while ((pid = waitpid(-1, &wstatus, WNOHANG)) > 0) {
+            int code = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus)
+                                          : 128 + WTERMSIG(wstatus);
+            jobs_mark_done(pid, code);   /* called with mutex held */
+        }
+        pthread_mutex_unlock(&job_table_mutex);
     }
+    return NULL;
 }
 
 /* =========================================================================
@@ -384,11 +529,79 @@ static int lsh_cd(cmd_t *cmd) {
         target = cmd->argv[1];
     }
     if (chdir(target) != 0) { perror("cd"); return 1; }
+
+    /* Update g_cwd immediately after the successful chdir.
+     * pthread_join() in lsh_execute() guarantees no other command is
+     * running concurrently, so this write races with nothing in practice.
+     * The mutex makes that guarantee explicit and keeps the read in the
+     * prompt display safe regardless of future scheduling changes. */
+    pthread_mutex_lock(&cwd_mutex);
+    if (!getcwd(g_cwd, sizeof(g_cwd)))
+        g_cwd[0] = '\0';   /* fallback: show empty rather than stale path */
+    pthread_mutex_unlock(&cwd_mutex);
+
     return 0;
 }
 
 static int lsh_exit(cmd_t *cmd) {
     int code = (cmd->argc > 1) ? atoi(cmd->argv[1]) : 0;
+
+    /* ---- Step 1: cancel and join all background thread jobs ----
+     *
+     * We must NOT hold job_table_mutex across pthread_join():
+     *   bg_builtin_cleanup() — the cleanup handler registered inside every
+     *   background thread — calls pthread_mutex_lock(&job_table_mutex).
+     *   If we hold the mutex here while blocking in pthread_join(), the
+     *   cleanup handler will deadlock waiting for the same mutex.
+     *
+     * Safe pattern: lock → snapshot tids → unlock → cancel all → join all.
+     *   All cancels are issued before any join so every thread gets the
+     *   cancel request as early as possible; we then drain them in order.
+     */
+    pthread_t tids[MAX_JOBS];
+    int       ntids = 0;
+
+    pthread_mutex_lock(&job_table_mutex);
+    for (int i = 0; i < MAX_JOBS; i++) {
+        /* Collect ALL thread jobs, not just JOB_RUNNING ones.
+         * A Done thread that was never joined (e.g. the user never ran 'jobs')
+         * still has a valid, joinable tid.  We cancel it (no-op if already
+         * finished) then join it to free the thread stack. */
+        if (job_table[i].job_type == JOB_TYPE_THREAD &&
+            job_table[i].tid      != 0) {
+            tids[ntids++] = job_table[i].tid;
+        }
+    }
+    pthread_mutex_unlock(&job_table_mutex);
+
+    /* Send cancel requests first (non-blocking) so threads can start winding
+     * down concurrently, then join each one in turn. */
+    for (int i = 0; i < ntids; i++)
+        pthread_cancel(tids[i]);
+    for (int i = 0; i < ntids; i++)
+        pthread_join(tids[i], NULL);   /* blocks until cleanup handlers finish */
+
+    /* ---- Step 2: reap any remaining background child processes ----
+     *
+     * The SIGCHLD reaper thread may have already handled most of these, but
+     * it could be slightly behind if children exited just before we cancelled
+     * our own threads.  A WNOHANG loop is cheap and ensures no zombies linger.
+     */
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+
+    /* ---- Step 3: destroy mutexes ----
+     *
+     * Safe to destroy only after all threads that could acquire these mutexes
+     * have been joined (step 1) or are the detached reaper thread — which
+     * only touches job_table_mutex and will be killed by exit() momentarily.
+     * POSIX allows destroy on a mutex with no waiters; calling it here makes
+     * memory sanitisers and Valgrind happy.
+     */
+    pthread_mutex_destroy(&job_table_mutex);
+    pthread_mutex_destroy(&cwd_mutex);
+    pthread_mutex_destroy(&pipeline_io_mutex);
+
     exit(code);
 }
 
@@ -463,13 +676,15 @@ static int lsh_kill(cmd_t *cmd) {
             fprintf(stderr, "kill: bad job spec: %s\n", target);
             return 1;
         }
-        /* Search job_table for this job id */
+        /* Search job_table for this job id — hold mutex for the lookup */
+        pthread_mutex_lock(&job_table_mutex);
         for (int i = 0; i < MAX_JOBS; i++) {
             if (job_table[i].pid != 0 && job_table[i].id == (int)jid) {
                 pid = job_table[i].pid;
                 break;
             }
         }
+        pthread_mutex_unlock(&job_table_mutex);
         if (pid == -1) {
             fprintf(stderr, "kill: %%%ld: no such job\n", jid);
             return 1;
@@ -494,11 +709,24 @@ static int lsh_kill(cmd_t *cmd) {
 }
 
 /* =========================================================================
+ * pthread support for built-in commands
+ *
+ * thread_args_t is heap-allocated by lsh_execute(), passed through the
+ * void* boundary into builtin_thread_entry(), and freed after pthread_join().
+ * ===================================================================== */
+typedef struct {
+    cmd_t *cmd;      /* full command struct (argv, argc, redirections …) */
+    int    result;   /* exit code written by the thread, read after join  */
+} thread_args_t;
+
+/* =========================================================================
  * Built-in dispatch table
  *
  * Parallel arrays: builtin_str[i] is the command name,
- * builtin_func[i] is the function to call directly in the parent.
+ * builtin_func[i] is the function to run inside a pthread.
  * lsh_execute() walks this table before falling through to lsh_launch().
+ * Declared before builtin_thread_entry so the entry function can reference
+ * both arrays without forward declarations.
  * ===================================================================== */
 static const char *builtin_str[] = {
     "cd",
@@ -517,6 +745,118 @@ static int (*builtin_func[])(cmd_t *) = {
     lsh_kill,
 };
 
+/* Forward declarations needed by bg_builtin_cleanup (defined later) */
+static cmd_t *cmd_dup(const cmd_t *src);
+static void   cmd_free(cmd_t *cmd);
+
+/* =========================================================================
+ * Background built-in thread support
+ *
+ * bg_thread_args_t extends thread_args_t with the job_id.  The job table
+ * slot is reserved (jobs_reserve_thread_slot) BEFORE pthread_create so
+ * that job_id is valid the instant the thread starts — avoiding the race
+ * where a very fast thread runs its cleanup before lsh_execute can write
+ * the job_id into bta.
+ *
+ * bg_builtin_cleanup is registered with pthread_cleanup_push inside the
+ * thread.  It runs when the thread returns normally OR is cancelled.
+ * It acquires job_table_mutex, marks the slot Done, then frees bta —
+ * so the main thread never needs to touch bta again after pthread_detach.
+ * ===================================================================== */
+typedef struct {
+    thread_args_t base;     /* must be first so (thread_args_t *) casts work */
+    int           job_id;   /* set before pthread_create; read by cleanup      */
+    int           cmd_owned; /* 1 = base.cmd is heap-alloc'd via cmd_dup();
+                                cleanup must call cmd_free(base.cmd)          */
+} bg_thread_args_t;
+
+static void bg_builtin_cleanup(void *arg) {
+    bg_thread_args_t *bta = (bg_thread_args_t *)arg;
+    if (bta->job_id > 0) {
+        pthread_mutex_lock(&job_table_mutex);
+        for (int i = 0; i < MAX_JOBS; i++) {
+            if (job_table[i].job_type == JOB_TYPE_THREAD &&
+                job_table[i].id == bta->job_id) {
+                job_table[i].status    = JOB_DONE;
+                job_table[i].exit_code = bta->base.result;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&job_table_mutex);
+    }
+    if (bta->cmd_owned) cmd_free(bta->base.cmd);
+    free(bta);
+}
+
+static void *bg_builtin_thread_fn(void *arg) {
+    bg_thread_args_t *bta = (bg_thread_args_t *)arg;
+
+    /* Enable deferred cancellation.  The cleanup handler registered below
+     * (bg_builtin_cleanup) is invoked automatically on cancellation, so the
+     * job table slot is always freed and bta is always freed — no leak. */
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,   NULL);
+    pthread_setcanceltype (PTHREAD_CANCEL_DEFERRED, NULL);
+
+    /* Block SIGCHLD — must stay in the main thread where the handler lives */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &mask, NULL);
+
+    /* Declare result BEFORE pthread_cleanup_push: the push/pop macros expand
+     * to a {…} block, so anything declared inside is out of scope after pop. */
+    int result = 0;
+
+    pthread_cleanup_push(bg_builtin_cleanup, bta);
+
+    const char *name = cmd_basename(bta->base.cmd->argv[0]);
+    for (int i = 0; builtin_str[i] != NULL; i++) {
+        if (strcmp(name, builtin_str[i]) == 0) {
+            bta->base.result = builtin_func[i](bta->base.cmd);
+            result = bta->base.result;
+            break;
+        }
+    }
+
+    pthread_cleanup_pop(1);   /* 1 = execute cleanup now (frees bta) */
+    return (void *)(intptr_t)result;
+}
+
+/* Thread entry point — declared after the table so it can reference both
+ * builtin_str[] and builtin_func[] without needing forward declarations. */
+static void *builtin_thread_entry(void *arg) {
+    /* Enable deferred cancellation so lsh_exit() can cancel foreground
+     * built-ins that are blocked in a syscall (e.g. sort reading a large
+     * file).  DEFERRED means the cancel only fires at a defined cancellation
+     * point (read, write, sleep, etc.) — never mid-instruction, so no
+     * data structure is left half-written. */
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,   NULL);
+    pthread_setcanceltype (PTHREAD_CANCEL_DEFERRED, NULL);
+
+    /* Block SIGCHLD in this thread so the signal is always delivered to the
+     * main thread (where sigaction installed the handler).  If SIGCHLD fired
+     * here it could interrupt a pthread_mutex_lock call inside the built-in,
+     * and the signal handler cannot safely acquire the same mutex. */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &mask, NULL);
+
+    thread_args_t *ta   = (thread_args_t *)arg;
+    const char    *name = cmd_basename(ta->cmd->argv[0]);
+
+    for (int i = 0; builtin_str[i] != NULL; i++) {
+        if (strcmp(name, builtin_str[i]) == 0) {
+            ta->result = builtin_func[i](ta->cmd);
+            return (void *)(intptr_t)ta->result;
+        }
+    }
+
+    /* Should never reach here — caller already verified the name exists */
+    ta->result = 1;
+    return (void *)(intptr_t)1;
+}
+
 /* =========================================================================
  * lsh_execute — top-level command dispatcher
  *
@@ -534,10 +874,98 @@ static int lsh_execute(cmd_t *cmd) {
 
     const char *name = cmd_basename(cmd->argv[0]);
 
-    /* Layer 1 — explicit built-ins that must not fork */
+    /* Layer 1 — built-ins run in a dedicated pthread
+     *
+     * pthread_create + pthread_join makes the built-in feel synchronous to
+     * the user (the prompt only reappears after the thread exits) while
+     * keeping the main thread free to handle signals between the create and
+     * join calls.  The heap-allocated thread_args_t is freed after join so
+     * no state leaks across commands.
+     */
     for (int i = 0; builtin_str[i] != NULL; i++) {
-        if (strcmp(name, builtin_str[i]) == 0)
-            return builtin_func[i](cmd);
+        if (strcmp(name, builtin_str[i]) == 0) {
+
+            if (cmd->background) {
+                /* ---- Background built-in: detach and return immediately ---- */
+
+                /* cd: chdir() is process-wide; a detached thread would change the
+                 * directory at an unpredictable time relative to the next command.
+                 * exit: calling exit() from a detached thread skips the
+                 * pthread_cleanup_push handler registered in bg_builtin_thread_fn,
+                 * leaking the bta allocation and bypassing the ordered shutdown in
+                 * lsh_exit().  Both must always run as foreground (joined) threads. */
+                if (strcmp(name, "cd")   == 0 ||
+                    strcmp(name, "exit") == 0) {
+                    fprintf(stderr, "%s: cannot be run in background\n", name);
+                    return 1;
+                }
+
+                /* Build the display command string before heap-alloc */
+                char cmdstr[256] = "";
+                for (int j = 0; j < cmd->argc; j++) {
+                    if (j) strncat(cmdstr, " ", sizeof(cmdstr)-strlen(cmdstr)-1);
+                    strncat(cmdstr, cmd->argv[j], sizeof(cmdstr)-strlen(cmdstr)-1);
+                }
+
+                bg_thread_args_t *bta = malloc(sizeof(bg_thread_args_t));
+                if (!bta) { perror("aishell: malloc"); return 1; }
+                bta->base.cmd = cmd_dup(cmd);
+                if (!bta->base.cmd) { free(bta); return 1; }
+                bta->base.result = 0;
+                bta->cmd_owned   = 1;
+
+                /* Reserve slot BEFORE pthread_create so job_id is valid the
+                 * instant the thread starts — bg_builtin_cleanup uses it. */
+                int jid = jobs_reserve_thread_slot(cmdstr);
+                if (jid < 0) { free(bta); return 1; }
+                bta->job_id = jid;
+
+                pthread_t tid;
+                int rc = pthread_create(&tid, NULL, bg_builtin_thread_fn, bta);
+                if (rc != 0) {
+                    fprintf(stderr, "aishell: pthread_create: %s\n", strerror(rc));
+                    /* Mark the pre-reserved slot free again */
+                    pthread_mutex_lock(&job_table_mutex);
+                    for (int k = 0; k < MAX_JOBS; k++) {
+                        if (job_table[k].id == jid)
+                            job_table[k].job_type = JOB_TYPE_NONE;
+                    }
+                    pthread_mutex_unlock(&job_table_mutex);
+                    free(bta);
+                    return 1;
+                }
+
+                /* Fill in the real tid now that pthread_create succeeded.
+                 * Do NOT detach the thread: lsh_exit() and jobs_print_and_prune()
+                 * need a joinable tid to reclaim the thread's stack.  Calling
+                 * pthread_join() on a detached thread is POSIX UB. */
+                jobs_set_thread_tid(jid, tid);
+
+                printf("[%d] (thread)\n", jid);
+                fflush(stdout);
+                return 0;
+
+            } else {
+                /* ---- Foreground built-in: join and wait ---- */
+                thread_args_t *ta = malloc(sizeof(thread_args_t));
+                if (!ta) { perror("aishell: malloc"); return 1; }
+                ta->cmd    = cmd;
+                ta->result = 0;
+
+                pthread_t tid;
+                int rc = pthread_create(&tid, NULL, builtin_thread_entry, ta);
+                if (rc != 0) {
+                    fprintf(stderr, "aishell: pthread_create: %s\n", strerror(rc));
+                    free(ta);
+                    return 1;
+                }
+
+                pthread_join(tid, NULL);
+                int result = ta->result;
+                free(ta);
+                return result;
+            }
+        }
     }
 
     /* Layer 2 — aishell registered commands (registry.c) */
@@ -738,6 +1166,163 @@ static void free_cmd_argv(cmd_t *cmd) {
 }
 
 /* =========================================================================
+ * cmd_dup / cmd_free — deep copy a cmd_t for background threads.
+ *
+ * Background built-in threads (help &, jobs &, …) receive a raw pointer
+ * into the REPL's stack-allocated cmds[] array.  The REPL calls
+ * free_cmd_argv() and reuses the array as soon as execute_command()
+ * returns — which can happen while the background thread is still reading
+ * argv[0] to look up the command name.  The result is a use-after-free
+ * and a segfault (SIGSEGV).
+ *
+ * cmd_dup() makes a fully independent heap copy: new cmd_t, new argv[],
+ * strdup'd strings, strdup'd stdin/stdout filenames.  The background
+ * thread owns this copy and cmd_free() releases it in bg_builtin_cleanup.
+ * ===================================================================== */
+static cmd_t *cmd_dup(const cmd_t *src) {
+    cmd_t *dst = malloc(sizeof(cmd_t));
+    if (!dst) return NULL;
+    *dst = *src;          /* bitwise copy of all scalar fields */
+
+    /* Deep-copy argv (build_cmd_argv strdup'd each element already, so we
+     * must strdup again so the bg thread has its own independent copy). */
+    if (src->argc > 0 && src->argv) {
+        dst->argv = malloc(((size_t)src->argc + 1) * sizeof(char *));
+        if (!dst->argv) { free(dst); return NULL; }
+        int i;
+        for (i = 0; i < src->argc; i++) {
+            dst->argv[i] = strdup(src->argv[i]);
+            if (!dst->argv[i]) {
+                for (int j = 0; j < i; j++) free(dst->argv[j]);
+                free(dst->argv); free(dst); return NULL;
+            }
+        }
+        dst->argv[i] = NULL;
+    } else {
+        dst->argv = NULL;
+        dst->argc = 0;
+    }
+
+    /* stdin_file / stdout_file point into the line buffer (freed by the REPL
+     * loop); dup them so the bg thread never reads a freed pointer. */
+    dst->stdin_file  = src->stdin_file  ? strdup(src->stdin_file)  : NULL;
+    dst->stdout_file = src->stdout_file ? strdup(src->stdout_file) : NULL;
+    return dst;
+}
+
+static void cmd_free(cmd_t *cmd) {
+    if (!cmd) return;
+    if (cmd->argv) {
+        for (int i = 0; cmd->argv[i]; i++) free(cmd->argv[i]);
+        free(cmd->argv);
+    }
+    free(cmd->stdin_file);
+    free(cmd->stdout_file);
+    free(cmd);
+}
+
+/* =========================================================================
+ * Pipeline thread support
+ *
+ * When a built-in command appears as a pipeline stage, it runs as a
+ * pthread instead of a forked child.  Both cases share the same pipe()
+ * file descriptors for data transport; only the execution model differs.
+ *
+ * dup2() is process-wide: all threads share one fd table.  Two concurrent
+ * threads doing dup2(different_fds, STDOUT_FILENO) race — one thread's
+ * write could reach the other's pipe.  pipeline_io_mutex (declared near the
+ * other globals above) serialises the entire dup2 → run → fflush → restore
+ * sequence for built-in stages.  Forked children are unaffected (separate
+ * fd tables) and never compete for this mutex.
+ * ===================================================================== */
+
+/* Arguments passed through the void* boundary to pipeline_builtin_thread_fn */
+typedef struct {
+    cmd_t *cmd;
+    int    pipe_read;   /* fd to dup2 onto STDIN_FILENO  (-1 = not needed) */
+    int    pipe_write;  /* fd to dup2 onto STDOUT_FILENO (-1 = not needed) */
+    int    result;      /* exit code written by thread, read after join     */
+} pipeline_stage_args_t;
+
+/* Stage handle — tracks either a forked child (pid) or a built-in thread */
+typedef enum  { STAGE_FORK, STAGE_THREAD } stage_type_t;
+typedef struct {
+    stage_type_t          type;
+    union { pid_t pid; pthread_t tid; };
+    pipeline_stage_args_t *args;   /* non-NULL for STAGE_THREAD; freed after join */
+} stage_handle_t;
+
+/* Returns 1 if name matches a command in the builtin_str[] dispatch table */
+static int is_builtin_cmd(const char *name) {
+    for (int i = 0; builtin_str[i] != NULL; i++)
+        if (strcmp(name, builtin_str[i]) == 0) return 1;
+    return 0;
+}
+
+/* Thread entry for a built-in command that is a stage in a pipeline.
+ *
+ * Holds pipeline_io_mutex for the entire dup2 → run → restore sequence so
+ * no two built-in stages race on the shared fd table.  The mutex is released
+ * only after fds are fully restored, so the next built-in stage that acquires
+ * it sees the original fd state before doing its own dup2.
+ *
+ * External stages (forked children) never touch this mutex — they have
+ * private fd tables and can run concurrently with no conflict.
+ */
+static void *pipeline_builtin_thread_fn(void *arg) {
+    pipeline_stage_args_t *s = (pipeline_stage_args_t *)arg;
+
+    /* Enable deferred cancellation.  Pipeline threads are always foreground
+     * (run_pipeline joins them), but setting the state explicitly documents
+     * intent and keeps behaviour consistent across all built-in thread types. */
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,   NULL);
+    pthread_setcanceltype (PTHREAD_CANCEL_DEFERRED, NULL);
+
+    /* Block SIGCHLD so it stays in the main thread where the handler lives */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &mask, NULL);
+
+    /* Hold the IO mutex for the entire dup2 → run → restore sequence */
+    pthread_mutex_lock(&pipeline_io_mutex);
+
+    /* Wire this stage into the pipeline */
+    int saved_in  = -1, saved_out = -1;
+    if (s->pipe_read >= 0) {
+        saved_in = dup(STDIN_FILENO);
+        dup2(s->pipe_read,  STDIN_FILENO);
+        close(s->pipe_read);
+    }
+    if (s->pipe_write >= 0) {
+        saved_out = dup(STDOUT_FILENO);
+        dup2(s->pipe_write, STDOUT_FILENO);
+        close(s->pipe_write);
+    }
+
+    /* Run the built-in with redirected stdin/stdout */
+    const char *name = cmd_basename(s->cmd->argv[0]);
+    s->result = 1;
+    for (int i = 0; builtin_str[i] != NULL; i++) {
+        if (strcmp(name, builtin_str[i]) == 0) {
+            s->result = builtin_func[i](s->cmd);
+            break;
+        }
+    }
+
+    /* Flush before restoring so buffered output reaches the pipe, not the
+     * terminal that STDOUT_FILENO will point to after the restore */
+    if (saved_out >= 0) fflush(stdout);
+
+    /* Restore original stdin/stdout */
+    if (saved_in  >= 0) { dup2(saved_in,  STDIN_FILENO);  close(saved_in);  clearerr(stdin); }
+    if (saved_out >= 0) { dup2(saved_out, STDOUT_FILENO); close(saved_out); }
+
+    pthread_mutex_unlock(&pipeline_io_mutex);
+    return (void *)(intptr_t)s->result;
+}
+
+/* =========================================================================
  * run_pipeline — execute N commands connected by pipes.
  *
  * For a pipeline  cmd0 | cmd1 | ... | cmdN-1 :
@@ -790,106 +1375,186 @@ static int run_pipeline(cmd_t *cmds, int n) {
         }
     }
 
-    pid_t pids[MAX_PIPELINE];
-    for (int i = 0; i < n; i++) pids[i] = -1;
+    stage_handle_t handles[MAX_PIPELINE];
+    for (int i = 0; i < n; i++) {
+        handles[i].type = STAGE_FORK;
+        handles[i].pid  = -1;
+        handles[i].args = NULL;
+    }
 
-    /* Flush all stdio buffers before any fork.  Registry commands (ls, cat,
-     * echo, pwd, …) write through stdio into the parent's glibc buffer.  If
-     * the buffer is not empty when fork() is called, the child inherits a
-     * copy of the unflushed bytes.  After dup2() redirects fd 1 to the pipe
-     * write end, the child's subsequent fflush(NULL) pumps those stale bytes
-     * into the pipe — so the previous command's output ends up mixed with the
-     * current stage's output and confuses downstream readers (wc, sort, …). */
+    /* Track every dup'd fd created for thread stages.
+     * These fds must be explicitly closed in every fork child's close loop.
+     *
+     * WHY: dup() is called before any fork().  Every fork child inherits ALL
+     * open fds including the dup'd copies.  A fork child that READS from a pipe
+     * (e.g. wc -l, sort) will deadlock if it also holds the WRITE end of the
+     * same pipe open — it waits for EOF that will never arrive because it itself
+     * prevents that EOF.  The fork child's standard close loop only covers
+     * pipes[j][0/1]; it doesn't know about dup'd thread fds.  We close them
+     * explicitly here.
+     *
+     * FD_CLOEXEC is also set as belt-and-suspenders for the execvp() path —
+     * exec closes them automatically even if we forget the manual close.  But
+     * for registry commands that call _exit() instead of exec, only the explicit
+     * close saves us. */
+    int thread_fds[MAX_PIPELINE * 2];
+    int n_thread_fds = 0;
+
+    /* Flush all stdio buffers before any fork so buffered parent output
+     * does not leak into pipe content via the child's inherited buffer. */
     fflush(NULL);
 
     for (int i = 0; i < n; i++) {
-        if (cmds[i].argc == 0) { pids[i] = -1; continue; }
+        if (cmds[i].argc == 0) continue;
 
-        pids[i] = fork();
-        if (pids[i] < 0) {
-            perror("aishell: fork");
-            /* Don't close pipes here — the parent always-closes loop below
-             * handles all of them.  Closing twice would be a double-close. */
-            pids[i] = -1;
-            break;
-        }
+        const char *name   = cmd_basename(cmds[i].argv[0]);
+        int         is_blt = is_builtin_cmd(name);
 
-        if (pids[i] == 0) {
-            /* ---- Child i ---- */
+        /* Determine pipe fds for this stage:
+         *   read  from pipes[i-1][0]  if not the first stage
+         *   write to   pipes[i][1]    if not the last  stage */
+        int rd = (i > 0)     ? pipes[i-1][0] : -1;
+        int wr = (i < n - 1) ? pipes[i][1]   : -1;
 
-            /* Step 0: restore signal defaults inherited as SIG_IGN from shell */
-            struct sigaction sa_dfl;
-            sa_dfl.sa_handler = SIG_DFL;
-            sigemptyset(&sa_dfl.sa_mask);
-            sa_dfl.sa_flags = 0;
-            sigaction(SIGINT,  &sa_dfl, NULL);
-            sigaction(SIGQUIT, &sa_dfl, NULL);
-
-            /* Step 1: wire this stage into the pipeline */
-            if (i > 0)     dup2(pipes[i-1][0], STDIN_FILENO);   /* read from prev */
-            if (i < n - 1) dup2(pipes[i][1],   STDOUT_FILENO);  /* write to next  */
-
-            /* Step 2: close every pipe FD — we've dup2'd what we need */
-            for (int j = 0; j < n - 1; j++) {
-                close(pipes[j][0]);
-                close(pipes[j][1]);
+        if (is_blt) {
+            /* ---- Built-in stage: run as a pthread ----
+             *
+             * FD ownership: dup() the pipe ends so the thread owns its own
+             * copies while the parent keeps the originals.  The thread closes
+             * its copies after dup2(); the parent's close loop closes the
+             * originals.  No sharing → no double-close → no fd-number reuse
+             * hazard between the two closes. */
+            int rd_t = (rd >= 0) ? dup(rd) : -1;
+            int wr_t = (wr >= 0) ? dup(wr) : -1;
+            if ((rd >= 0 && rd_t < 0) || (wr >= 0 && wr_t < 0)) {
+                perror("aishell: dup");
+                if (rd_t >= 0) close(rd_t);
+                if (wr_t >= 0) close(wr_t);
+                break;
             }
 
-            /* Step 3: explicit file redirections override the pipe.
-             * Supports both > (truncate) and >> (append). */
-            if (cmds[i].stdin_file) {
-                int fd = open(cmds[i].stdin_file, O_RDONLY);
-                if (fd < 0) { perror(cmds[i].stdin_file); _exit(1); }
-                dup2(fd, STDIN_FILENO); close(fd);
+            /* Register dup'd fds so fork children can close them explicitly,
+             * and set FD_CLOEXEC as belt-and-suspenders for the exec() path. */
+            if (rd_t >= 0) { thread_fds[n_thread_fds++] = rd_t; fcntl(rd_t, F_SETFD, FD_CLOEXEC); }
+            if (wr_t >= 0) { thread_fds[n_thread_fds++] = wr_t; fcntl(wr_t, F_SETFD, FD_CLOEXEC); }
+
+            pipeline_stage_args_t *args = malloc(sizeof(pipeline_stage_args_t));
+            if (!args) { perror("aishell: malloc"); close(rd_t); close(wr_t); break; }
+            args->cmd        = &cmds[i];
+            args->pipe_read  = rd_t;   /* thread-owned dup; thread closes after dup2 */
+            args->pipe_write = wr_t;   /* thread-owned dup; thread closes after dup2 */
+            args->result     = 1;
+
+            pthread_t tid;
+            int rc = pthread_create(&tid, NULL, pipeline_builtin_thread_fn, args);
+            if (rc != 0) {
+                fprintf(stderr, "aishell: pthread_create: %s\n", strerror(rc));
+                free(args);
+                break;
             }
-            if (cmds[i].stdout_file) {
-                int flags = O_WRONLY | O_CREAT |
-                            (cmds[i].stdout_append ? O_APPEND : O_TRUNC);
-                int fd = open(cmds[i].stdout_file, flags, 0644);
-                if (fd < 0) { perror(cmds[i].stdout_file); _exit(1); }
-                dup2(fd, STDOUT_FILENO); close(fd);
+            handles[i].type = STAGE_THREAD;
+            handles[i].tid  = tid;
+            handles[i].args = args;
+
+        } else {
+            /* ---- External or registry stage: fork ---- */
+            pid_t pid = fork();
+            if (pid < 0) {
+                perror("aishell: fork");
+                break;
             }
 
-            /* Step 4: exec — try registry first, then external.
-             * fflush(NULL) before _exit: registered commands write to stdio
-             * (printf/fprintf) which is fully buffered when stdout is a pipe.
-             * _exit() skips stdio cleanup so buffered output would be lost.
-             * Flushing explicitly ensures all output reaches the pipe reader. */
-            const char *name = cmd_basename(cmds[i].argv[0]);
-            const cmd_spec_t *spec = find_command(name);
-            if (spec) {
-                int rc = spec->run(cmds[i].argc, cmds[i].argv);
-                fflush(NULL);
-                _exit(rc);
-            } else {
-                execvp(cmds[i].argv[0], cmds[i].argv);
-                perror(cmds[i].argv[0]);
-                _exit(127);
+            if (pid == 0) {
+                /* ---- Child ---- */
+                struct sigaction sa_dfl;
+                sa_dfl.sa_handler = SIG_DFL;
+                sigemptyset(&sa_dfl.sa_mask);
+                sa_dfl.sa_flags = 0;
+                sigaction(SIGINT,  &sa_dfl, NULL);
+                sigaction(SIGQUIT, &sa_dfl, NULL);
+
+                /* Wire this stage into the pipeline */
+                if (rd >= 0) dup2(rd, STDIN_FILENO);
+                if (wr >= 0) dup2(wr, STDOUT_FILENO);
+
+                /* Close every pipe fd — we've dup2'd what we need */
+                for (int j = 0; j < n - 1; j++) {
+                    close(pipes[j][0]);
+                    close(pipes[j][1]);
+                }
+                /* Close dup'd fds created for thread stages.  These are NOT
+                 * in pipes[][] so the loop above misses them.  Without this
+                 * explicit close, a registry command (_exit path, no exec)
+                 * that reads from a pipe would hold the write end open and
+                 * deadlock waiting for EOF that it itself prevents. */
+                for (int k = 0; k < n_thread_fds; k++)
+                    close(thread_fds[k]);
+
+                /* Explicit file redirections override the pipe */
+                if (cmds[i].stdin_file) {
+                    int fd = open(cmds[i].stdin_file, O_RDONLY);
+                    if (fd < 0) { perror(cmds[i].stdin_file); _exit(1); }
+                    dup2(fd, STDIN_FILENO); close(fd);
+                }
+                if (cmds[i].stdout_file) {
+                    int flags = O_WRONLY | O_CREAT |
+                                (cmds[i].stdout_append ? O_APPEND : O_TRUNC);
+                    int fd = open(cmds[i].stdout_file, flags, 0644);
+                    if (fd < 0) { perror(cmds[i].stdout_file); _exit(1); }
+                    dup2(fd, STDOUT_FILENO); close(fd);
+                }
+
+                const cmd_spec_t *spec = find_command(name);
+                if (spec) {
+                    int rc = spec->run(cmds[i].argc, cmds[i].argv);
+                    fflush(NULL);
+                    _exit(rc);
+                } else {
+                    execvp(cmds[i].argv[0], cmds[i].argv);
+                    perror(cmds[i].argv[0]);
+                    _exit(127);
+                }
             }
+
+            handles[i].type = STAGE_FORK;
+            handles[i].pid  = pid;
         }
     }
 
-    /* Parent: close all pipe FDs so readers see EOF when writers exit */
+    /* Parent closes all pipe fds so readers see EOF when writers exit.
+     * Must happen after all stages are launched — if done stage-by-stage,
+     * a forked child might not yet have dup2'd before we close the fd. */
     for (int i = 0; i < n - 1; i++) {
         close(pipes[i][0]);
         close(pipes[i][1]);
     }
 
-    /* Wait for all children; return the exit status of the last stage.
-     * SIGCHLD remains blocked until after this loop so the handler cannot
-     * race with our per-PID waitpid calls and steal a child's exit status. */
+    /* Wait for every stage and collect the last stage's exit status.
+     * SIGCHLD stays blocked so the reaper thread doesn't steal a child's
+     * exit status before our waitpid call reaches it. */
     int last_status = 0;
     for (int i = 0; i < n; i++) {
-        if (pids[i] <= 0) continue;
-        int wstatus;
-        pid_t r;
-        do { r = waitpid(pids[i], &wstatus, 0); } while (r < 0 && errno == EINTR);
-        if (i == n - 1 && r > 0)
-            last_status = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus)
-                                             : 128 + WTERMSIG(wstatus);
+        int stage_status = 0;
+
+        if (handles[i].type == STAGE_THREAD) {
+            void *retval;
+            pthread_join(handles[i].tid, &retval);
+            stage_status = handles[i].args->result;
+            free(handles[i].args);
+
+        } else if (handles[i].pid > 0) {
+            int wstatus;
+            pid_t r;
+            do { r = waitpid(handles[i].pid, &wstatus, 0); } while (r < 0 && errno == EINTR);
+            if (r > 0)
+                stage_status = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus)
+                                                  : 128 + WTERMSIG(wstatus);
+        }
+
+        if (i == n - 1) last_status = stage_status;
     }
 
-    /* Restore the signal mask now that all pipeline children are reaped */
+    /* Restore the signal mask now that all pipeline stages are done */
     sigprocmask(SIG_SETMASK, &old_mask, NULL);
     return last_status;
 }
@@ -1021,13 +1686,38 @@ static void shell_repl(void) {
     size_t  len  = 0;
     ssize_t nread;
 
+    /* Snapshot the initial working directory so the prompt is accurate
+     * from the very first line, before any cd has been run. */
+    pthread_mutex_lock(&cwd_mutex);
+    if (!getcwd(g_cwd, sizeof(g_cwd))) g_cwd[0] = '\0';
+    pthread_mutex_unlock(&cwd_mutex);
+
     for (;;) {
+        /* Build a display prompt that includes the current directory.
+         *
+         * The mutex read here and the mutex write in lsh_cd() form a
+         * consistent pair: the prompt always shows the directory that was
+         * current when the previous command returned, never a half-written
+         * intermediate value from a concurrent chdir() — which the cd-
+         * background guard prevents anyway, but the mutex makes it explicit.
+         *
+         * Example: [/home/user/aishell/week3] jshell%
+         */
+        char display_prompt[4400];   /* sizeof(g_cwd) + sizeof(prompt) + brackets */
+        pthread_mutex_lock(&cwd_mutex);
+        if (g_cwd[0])
+            snprintf(display_prompt, sizeof(display_prompt),
+                     "[%s] %s", g_cwd, prompt);
+        else
+            snprintf(display_prompt, sizeof(display_prompt), "%s", prompt);
+        pthread_mutex_unlock(&cwd_mutex);
+
         /* Colored prompt on a real terminal; plain to stderr otherwise so
          * that piped output is not polluted with prompt text. */
         if (isatty(STDOUT_FILENO))
-            printf("\033[0;33m%s\033[0m", prompt);
+            printf("\033[0;33m%s\033[0m", display_prompt);
         else
-            fputs(prompt, stderr);
+            fputs(display_prompt, stderr);
         fflush(stdout);
         fflush(stderr);
 
@@ -1100,9 +1790,18 @@ int main(int argc, char **argv) {
     prepend_mysh_bin_to_path();   /* make ~/.mysh/bin visible to execvp */
     register_all_commands();
 
-    /* Reap background children automatically — prevents zombie processes.
-     * SA_RESTART makes library calls retry after the signal instead of
-     * returning EINTR, so background reaping is transparent to the REPL. */
+    /* Self-pipe for safe SIGCHLD → mutex-protected reaper.
+     * The write end is O_NONBLOCK so the signal handler never blocks.
+     * The reaper thread reads from the read end and updates job_table
+     * with the mutex held — something the signal handler cannot safely do. */
+    if (pipe(sigchld_pipe) < 0) { perror("aishell: pipe"); return 1; }
+    fcntl(sigchld_pipe[1], F_SETFL, O_NONBLOCK);
+
+    pthread_t reaper_tid;
+    pthread_create(&reaper_tid, NULL, sigchld_reaper_thread, NULL);
+    pthread_detach(reaper_tid);   /* runs for the life of the shell */
+
+    /* SIGCHLD handler now only writes one byte to sigchld_pipe[1]. */
     struct sigaction sa;
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);

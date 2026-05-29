@@ -1,8 +1,8 @@
-# week5 — Process Management
+# week6 — POSIX Thread Integration
 
 A modular, BusyBox-style shell implemented in C. All 32 commands compile into a **single `aishell` binary** that runs as an interactive REPL or dispatches subcommands directly.
 
-Builds on [aishell-week4](https://github.com/jaganath-k/aishell-week2), adding full process management: `fork`/`exec` for external commands, multi-stage pipes, I/O redirection (`>`, `>>`, `<`), background jobs with `&`, a SIGCHLD handler for zombie prevention, and Ctrl+C isolation so the shell survives signals that kill foreground children.
+Builds on [aishell-week5](https://github.com/jaganath-k/project-aishell), adding POSIX thread (`pthread`) integration: every built-in command now dispatches through a thread, background built-ins run as joinable threads tracked in the job table, mixed built-in/external pipelines are supported, the working directory is mutex-protected and reflected in the prompt, and `exit` performs a clean ordered shutdown of all background threads and processes.
 
 ---
 
@@ -254,7 +254,7 @@ make        # produces ./aishell
 make clean  # remove build artifacts
 ```
 
-Build flags: `-Wall -Wextra -std=c11`, linked with `-largtable3`.
+Build flags: `-Wall -Wextra -std=c11 -pthread`, linked with `-largtable3 -pthread`.
 
 ---
 
@@ -265,10 +265,10 @@ Build flags: `-Wall -Wextra -std=c11`, linked with `-largtable3`.
 | Signal handling | SIGINT/SIGQUIT/SIGTSTP ignored in shell (`SIG_IGN`); children restore `SIG_DFL` so Ctrl-C kills only the foreground process |
 | SIGCHLD handler | `waitpid(-1, WNOHANG)` loop reaps all finished children automatically — no zombie processes |
 | Colored prompt | Yellow ANSI on terminals; written to stderr when piped (stdout stays clean) |
-| Default prompt | `jshell% ` — change with `prompt STRING` |
+| Dynamic prompt | Shows current directory: `[/tmp] jshell%` — updated after every `cd`; change prefix with `prompt STRING` |
 | Sequential commands | `cmd1 ; cmd2` or `cmd1;cmd2` (spaces optional) |
-| Pipes | `cmd1 \| cmd2 \| cmd3` — multi-stage pipelines with full stdio buffer flushing before each `fork` |
-| Background jobs | `cmd &` — returns `[N] PID` immediately; job table tracks state |
+| Pipes | `cmd1 \| cmd2 \| cmd3` — multi-stage pipelines; built-in and external stages can be mixed freely |
+| Background jobs | `cmd &` — processes return `[N] PID`; built-ins return `[N] (thread)`; job table tracks both |
 | Output redirection | `cmd > file` (truncate) or `cmd >> file` (append) |
 | Input redirection  | `cmd < file` |
 | In-process redirect | `>`, `>>`, `<` work for registry commands (echo, pwd, wc, …) via fd save/restore with `fflush` before restore |
@@ -277,9 +277,35 @@ Build flags: `-Wall -Wextra -std=c11`, linked with `-largtable3`.
 
 ---
 
+## Thread Model (week6)
+
+| Aspect | Detail |
+|--------|--------|
+| Dispatch | Every built-in command runs in a `pthread` — foreground threads are joined immediately; background threads (`&`) are left running |
+| Job table | Tracks both `JOB_TYPE_PROCESS` (fork) and `JOB_TYPE_THREAD` (pthread) entries in the same table |
+| Background threads | Kept joinable (never detached); `lsh_exit()` and `jobs` can call `pthread_join()` to reclaim stack memory |
+| Cancellation | All threads use `PTHREAD_CANCEL_DEFERRED` — safe to cancel at syscall points; cleanup handler runs on cancellation |
+| Cleanup handler | `bg_builtin_cleanup` registered via `pthread_cleanup_push`; marks job Done and frees resources on both normal exit and cancellation |
+| Mixed pipelines | Built-in thread stages and fork'd external stages can appear in any order in a pipeline |
+| `pipeline_io_mutex` | Serialises `dup2 → run → restore` for built-in pipeline stages to prevent fd corruption across concurrent threads |
+| `g_cwd` + `cwd_mutex` | Mutex-protected global buffer updated after every `chdir()`; prompt reads from buffer — never calls `getcwd()` directly |
+| `cd &` / `exit &` | Rejected — `cd` would race against the REPL; `exit` would terminate the shell without joining threads |
+| Clean exit | `lsh_exit()` cancels and joins all background threads, reaps child processes, then destroys all mutexes before calling `exit()` |
+
+---
+
 ## Usage Examples
 
 ```sh
+# Thread integration (week6)
+jshell% help &                     # run built-in in background — returns [1] (thread)
+jshell% jobs &                     # run jobs in background — returns [2] (thread)
+jshell% jobs                       # lists both Process and Thread background jobs
+jshell% help | grep exit           # built-in thread piped to external process
+jshell% echo hello | wc -c        # external process piped to external process
+jshell% cd /tmp                    # prompt updates to [/tmp] jshell%
+jshell% exit                       # cancels background threads, reaps processes, exits cleanly
+
 # Process management and pipelines (week5)
 ./aishell                          # interactive REPL
 jshell% sleep 5 &                  # background job — returns [1] PID
@@ -402,10 +428,41 @@ execute_command()
 - Every `fork` child restores SIGINT and SIGQUIT to `SIG_DFL` before `execvp`
 - SIGCHLD handler uses `waitpid(-1, WNOHANG)` loop with `SA_RESTART | SA_NOCLDSTOP`
 
+### Thread dispatch (week6)
+
+```
+lsh_execute()
+  ├── background built-in (&)?
+  │     ├── guard: reject cd & and exit &
+  │     ├── cmd_dup(cmd)              deep-copy argv so thread owns its data
+  │     ├── jobs_reserve_thread_slot  pre-reserve job table slot (race-free)
+  │     ├── pthread_create(bg_builtin_thread_fn)
+  │     │     ├── pthread_cleanup_push(bg_builtin_cleanup)
+  │     │     ├── run built-in function
+  │     │     └── pthread_cleanup_pop → marks job Done, cmd_free, free(bta)
+  │     └── jobs_set_thread_tid       store real tid after successful create
+  └── foreground built-in?
+        ├── pthread_create(builtin_thread_entry)
+        └── pthread_join              REPL blocks until thread completes
+
+run_pipeline()  (mixed built-in + external stages)
+  ├── thread stage: dup(pipe_fd) → thread owns independent fd copy
+  ├── pipeline_io_mutex: serialise dup2 → run → restore for built-in stages
+  └── fork child: close all thread-dup'd fds before exec (prevents EOF stall)
+
+lsh_exit()
+  ├── collect thread tids under job_table_mutex, then release lock
+  ├── pthread_cancel all background threads
+  ├── pthread_join all background threads   (outside lock — deadlock-safe)
+  ├── waitpid(-1, WNOHANG) loop            reap child processes
+  ├── pthread_mutex_destroy × 3
+  └── exit(code)
+```
+
 ### Source layout
 
 ```
-aishell_main.c           — REPL + multi-call dispatch + pkg integration + process management
+aishell_main.c           — REPL + multi-call dispatch + pkg integration + process + thread management
 cmd_<name>.c             — one file per command (32 total)
 edit_utils.c/h           — shared file I/O helpers for edit-* commands
 cmd_spec.h               — cmd_spec_t definition + registry API
@@ -415,7 +472,8 @@ pkg.c                    — standalone package manager binary (6 subcommands)
 pkg.json                 — aishell package descriptor
 registry/                — Node.js + Express HTTP registry server
 docs/                    — pre-generated --help-json snapshots (32 JSON files)
-test_week5.sh            — bash test suite (25 checks, all features)
+test_week5.sh            — bash test suite (25 checks, process management features)
+test_week6.sh            — bash test suite (23 checks, pthread integration features)
 ```
 
 ---
