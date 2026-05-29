@@ -1,6 +1,6 @@
 CC      = gcc
-CFLAGS  = -Wall -Wextra -std=c11
-LDFLAGS = -largtable3
+CFLAGS  = -Wall -Wextra -std=c11 -pthread
+LDFLAGS = -largtable3 -pthread
 
 # All command sources compiled together into one binary — no separate .o files
 SRCS = aishell_main.c \
