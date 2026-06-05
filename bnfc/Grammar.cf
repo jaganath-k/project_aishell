@@ -1,0 +1,84 @@
+-- MiniShell grammar for BNFC (C backend)  -- Week 7 (final)
+--
+-- Base:       commands, pipelines (|), redirection, background (&), semicolons
+-- Extended:   quoted strings (preprocessed), if/elif/else/fi,
+--             AND list (&&), OR list (||), NOT (!)
+
+comment "/*" "*/" ;
+comment "//" ;
+
+-- Word: backtick is the space-placeholder for "..." preprocessing
+token Word   ( (letter | digit | ["-._/:*?~$`"])
+               (letter | digit | ["-._/:*?~$`"])* ) ;
+
+-- Assign: NAME=value
+token Assign ( letter (letter | digit | '_')* '='
+               (letter | digit | ["-._/:*?~$`"])* ) ;
+
+entrypoints Input ;
+
+-------------------------------------------------------------------
+-- Top level: semicolon-separated jobs
+-------------------------------------------------------------------
+StartInput. Input ::= [Job] ;
+
+-- Jobs use Condition (so && || ! all work inside jobs)
+OneJobFG.  Job ::= Condition ;
+OneJobBG.  Job ::= Condition "&" ;
+AssignJob. Job ::= Assign ;
+IfStmt.    Job ::= "if" Condition "then" [Job] OptElse "fi" ;
+
+separator nonempty Job ";" ;
+
+-------------------------------------------------------------------
+-- Optional else/elif chain (recursive — supports multiple elif)
+-------------------------------------------------------------------
+NoElse.   OptElse ::= ;
+ElsePart. OptElse ::= "else" [Job] ;
+ElifPart. OptElse ::= "elif" Condition "then" [Job] OptElse ;
+
+-------------------------------------------------------------------
+-- Condition: AND/OR chain of negatable commands (right-recursive)
+--
+--   a && b && c  →  CondAnd a (CondAnd b (CondSingle c))
+--   a || b       →  CondOr  a (CondSingle b)
+--   ! a && b     →  CondAnd (NotCL a) (CondSingle (PlainCL b))
+-------------------------------------------------------------------
+CondSingle. Condition ::= NegCmd ;
+CondAnd.    Condition ::= NegCmd "&&" Condition ;
+CondOr.     Condition ::= NegCmd "||" Condition ;
+
+-------------------------------------------------------------------
+-- Negatable command: optionally prefixed with !
+-------------------------------------------------------------------
+PlainCL.  NegCmd ::= CommandLine ;
+NotCL.    NegCmd ::= "!" NegCmd ;
+TimeCmd.  NegCmd ::= "time" NegCmd ;
+Subshell. NegCmd ::= "(" [Job] ")" ;
+Group.    NegCmd ::= "{" [Job] "}" ;
+
+-------------------------------------------------------------------
+-- Command line: pipeline + optional I/O redirection
+-------------------------------------------------------------------
+MkCmdLine.   CommandLine ::= Pipeline OptRedir ;
+
+-- Redirection (">>" before ">" so longer token matches first)
+NoRedir.     OptRedir    ::= ;
+AppendRedir. OptRedir    ::= ">>" Word ;
+OutRedir.    OptRedir    ::= ">"  Word ;
+InRedir.     OptRedir    ::= "<"  Word ;
+InOutRedir.  OptRedir    ::= "<"  Word ">" Word ;
+OutInRedir.  OptRedir    ::= ">"  Word "<" Word ;
+
+-------------------------------------------------------------------
+-- Pipeline
+-------------------------------------------------------------------
+Single.      Pipeline    ::= CommandPart ;
+Pipe.        Pipeline    ::= CommandPart "|" Pipeline ;
+
+-------------------------------------------------------------------
+-- Command part: command name + zero or more arguments
+-------------------------------------------------------------------
+Cmd.         CommandPart ::= Word [Word] ;
+
+separator Word " " ;

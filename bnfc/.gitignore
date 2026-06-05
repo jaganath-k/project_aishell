@@ -1,0 +1,26 @@
+# BNFC-generated C sources (reproducible from Grammar.cf via make bnfc-gen)
+Absyn.c
+Absyn.h
+Buffer.c
+Buffer.h
+Lexer.c
+Grammar.l
+Grammar.y
+Parser.c
+Parser.h
+Bison.h
+Printer.c
+Printer.h
+Skeleton.c
+Skeleton.h
+Test.c
+Makefile
+
+# Compiled binary
+TestGrammar
+
+# Object files
+*.o
+
+# Backup files created by bnfc when overwriting existing generated files
+*.bak

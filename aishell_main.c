@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <glob.h>
 #include <stdint.h>
+#include <ctype.h>
+#include <time.h>
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -1774,6 +1776,14 @@ static void shell_repl(void) {
     free(line);
 }
 
+/* Forward declarations for functions defined inside #ifdef USE_BNFC below.
+ * Without these, the compiler sees implicit declarations from inside main()
+ * and then rejects the later static definitions as conflicting. */
+#ifdef USE_BNFC
+static void bnfc_repl(void);
+static void commands_json_print(void);
+#endif
+
 /* =========================================================================
  * main — three dispatch modes
  *
@@ -1818,6 +1828,17 @@ int main(int argc, char **argv) {
         return 127;
     }
 
+    /* Mode 2.5 — --commands-json: emit full command catalog as JSON (week7) */
+    if (argc > 1 && strcmp(argv[1], "--commands-json") == 0) {
+#ifdef USE_BNFC
+        commands_json_print();
+#else
+        fprintf(stderr, "aishell: --commands-json requires USE_BNFC build\n");
+        return 1;
+#endif
+        return 0;
+    }
+
     /* Mode 2 — subcommand dispatch: ./aishell <cmd> [args...] */
     if (argc > 1) {
         const cmd_spec_t *cmd = find_command(argv[1]);
@@ -1830,6 +1851,803 @@ int main(int argc, char **argv) {
     }
 
     /* Mode 3 — interactive REPL */
+#ifdef USE_BNFC
+    bnfc_repl();
+#else
     shell_repl();
+#endif
     return 0;
 }
+
+/* =========================================================================
+ * Week 7 — BNFC grammar-driven front-end
+ *
+ * Compiled only when built with -DUSE_BNFC (the aishell_bnfc target).
+ * Uses the BNFC-generated parser (psInput) to parse each input line into
+ * a typed AST, then maps the AST onto the existing cmd_t / execution layer
+ * (lsh_execute, run_pipeline) without touching any Week 5/6 code.
+ *
+ * Three-layer architecture (from notebook):
+ *   1. Grammar/Parser  — Grammar.cf → BNFC → Absyn/Lexer/Parser
+ *   2. Shell core      — bnfc_repl() + eval_* functions below
+ *   3. Command modules — existing cmd_spec_t registry (32 commands)
+ * ===================================================================== */
+#ifdef USE_BNFC
+
+#include "Absyn.h"    /* BNFC-generated AST types          */
+#include "Parser.h"   /* psInput(const char*) entry point  */
+#include "Printer.h"  /* showInput() for debug             */
+
+#define BNFC_MAX_PIPELINE 16
+
+/* Arithmetic expansion parser state — declared here so forward decls compile */
+typedef struct { const char *p; } AParser;
+
+/* Forward declarations — functions are defined before their callees. */
+static long ap_expr  (AParser *a);
+static long ap_term  (AParser *a);
+static long ap_factor(AParser *a);
+static int  eval_job(Job job);
+static void eval_optelse(OptElse oe, int cond_failed);
+static void eval_run_listjob(ListJob lj);
+static int  eval_condition(Condition cond);
+static int  eval_negcmd(NegCmd nc);
+static int  eval_cmdline(CommandLine cl);
+static int  eval_pipeline_ast(Pipeline pl, cmd_t *cmds, int idx);
+static void eval_redir(OptRedir redir, cmd_t *cmds, int n);
+static void free_bnfc_cmds(cmd_t *cmds, int n);
+static int  bnfc_run_cmd(cmd_t *cmd);
+#define BNFC_MAX_ARGS     64
+
+/* ── Variable store (for x=value assignment and $x expansion) ───────────── */
+
+#define MAX_VARS 64
+static struct { char name[64]; char value[256]; } var_store[MAX_VARS];
+static int var_count      = 0;
+static int  g_last_status   = 0;          /* tracks $? — exit status of last job */
+static char g_bnfc_prompt[256] = "jshell% "; /* prompt string shared with execute_command */
+
+/* Forward declare execute_command (defined earlier in this file, before #ifdef) */
+static int execute_command(cmd_t *cmd, char *prompt, size_t prompt_sz);
+
+/* Wrapper: routes a single cmd_t through execute_command so that in-process
+ * registry commands (echo, pwd, wc, ...) get proper I/O redirect setup. */
+static int bnfc_run_cmd(cmd_t *cmd) {
+    return execute_command(cmd, g_bnfc_prompt, sizeof(g_bnfc_prompt));
+}
+
+static void var_set(const char *name, const char *value) {
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(var_store[i].name, name) == 0) {
+            strncpy(var_store[i].value, value, sizeof(var_store[i].value) - 1);
+            return;
+        }
+    }
+    if (var_count < MAX_VARS) {
+        strncpy(var_store[var_count].name,  name,  sizeof(var_store[0].name)  - 1);
+        strncpy(var_store[var_count].value, value, sizeof(var_store[0].value) - 1);
+        var_count++;
+    }
+}
+
+static const char *var_get(const char *name) {
+    /* Check shell variables first, then fall back to environment */
+    for (int i = 0; i < var_count; i++)
+        if (strcmp(var_store[i].name, name) == 0)
+            return var_store[i].value;
+    return getenv(name);
+}
+
+/* Expand $VAR / $? / $$ references inside a Word token.
+ * Returns a heap-alloc'd string the caller must free.
+ *
+ * Supported special variables (slide 19):
+ *   $?  — exit status of the last foreground job
+ *   $$  — PID of the shell process
+ *   $x  — shell variable or environment variable named x
+ */
+static char *expand_vars(const char *word) {
+    char  buf[1024] = "";
+    const char *p   = word;
+    while (*p) {
+        if (*p == '$') {
+            p++;
+            char tmp[64];
+            if (*p == '?') {
+                /* $? — last exit status */
+                snprintf(tmp, sizeof(tmp), "%d", g_last_status);
+                strncat(buf, tmp, sizeof(buf) - strlen(buf) - 1);
+                p++;
+            } else if (*p == '$') {
+                /* $$ — shell PID */
+                snprintf(tmp, sizeof(tmp), "%d", (int)getpid());
+                strncat(buf, tmp, sizeof(buf) - strlen(buf) - 1);
+                p++;
+            } else if (*p == '{') {
+                /* ${var} brace form */
+                p++;
+                char name[64]; int j = 0;
+                while (*p && *p != '}' && j < 63) name[j++] = *p++;
+                name[j] = '\0';
+                if (*p == '}') p++;
+                const char *v = var_get(name);
+                if (v) strncat(buf, v, sizeof(buf) - strlen(buf) - 1);
+            } else {
+                /* $name plain form */
+                char name[64]; int j = 0;
+                while (*p && (isalnum((unsigned char)*p) || *p == '_'))
+                    name[j++] = *p++;
+                name[j] = '\0';
+                const char *v = var_get(name);
+                if (v) strncat(buf, v, sizeof(buf) - strlen(buf) - 1);
+            }
+        } else {
+            size_t l = strlen(buf);
+            if (l + 1 < sizeof(buf)) { buf[l] = *p; buf[l+1] = '\0'; }
+            p++;
+        }
+    }
+    return strdup(buf);
+}
+
+/* =========================================================================
+ * Arithmetic expansion: $((expr))
+ *
+ * Called in bnfc_repl() BEFORE preprocess_quotes() so that:
+ *   echo "$((2+3)) dollars"  →  echo "5 dollars"  →  echo 5`dollars
+ *
+ * The evaluator is a recursive descent parser supporting:
+ *   - Integer literals (decimal)
+ *   - Variable references: $name or bare name
+ *   - Unary +  and  -
+ *   - Binary +  -  *  /  %  with standard precedence
+ *   - Parentheses ( expr )
+ *
+ * Finding the closing )): scan with inner-paren depth tracking.
+ *   At each ')': if depth==0 AND next char is ')' → end of $((expr)).
+ *   Otherwise decrement depth and continue.
+ * ===================================================================== */
+
+/* AParser typedef is at file scope (before the #ifdef USE_BNFC forward decls) */
+
+static long ap_expr  (AParser *a);
+static long ap_term  (AParser *a);
+static long ap_factor(AParser *a);
+
+static void ap_ws(AParser *a) {
+    while (*a->p == ' ' || *a->p == '\t') a->p++;
+}
+
+static long ap_factor(AParser *a) {
+    ap_ws(a);
+    /* Unary minus / plus */
+    if (*a->p == '-') { a->p++; return -ap_factor(a); }
+    if (*a->p == '+') { a->p++; return  ap_factor(a); }
+    /* Sub-expression in parens */
+    if (*a->p == '(') {
+        a->p++;
+        long v = ap_expr(a);
+        ap_ws(a);
+        if (*a->p == ')') a->p++;
+        return v;
+    }
+    /* Variable reference: $name */
+    if (*a->p == '$') {
+        a->p++;
+        char name[64]; int j = 0;
+        while (*a->p && (isalnum((unsigned char)*a->p) || *a->p == '_'))
+            name[j++] = *a->p++;
+        name[j] = '\0';
+        const char *v = var_get(name);
+        return v ? atol(v) : 0;
+    }
+    /* Bare identifier (also a variable) */
+    if (isalpha((unsigned char)*a->p) || *a->p == '_') {
+        char name[64]; int j = 0;
+        while (*a->p && (isalnum((unsigned char)*a->p) || *a->p == '_'))
+            name[j++] = *a->p++;
+        name[j] = '\0';
+        const char *v = var_get(name);
+        return v ? atol(v) : 0;
+    }
+    /* Integer literal */
+    long val = 0;
+    while (isdigit((unsigned char)*a->p)) val = val * 10 + (*a->p++ - '0');
+    return val;
+}
+
+static long ap_term(AParser *a) {
+    long left = ap_factor(a);
+    ap_ws(a);
+    while (*a->p == '*' || *a->p == '/' || *a->p == '%') {
+        char op = *a->p++;
+        ap_ws(a);
+        long right = ap_factor(a);
+        switch (op) {
+        case '*': left *= right; break;
+        case '/': left = right ? left / right : 0; break;
+        case '%': left = right ? left % right : 0; break;
+        }
+        ap_ws(a);
+    }
+    return left;
+}
+
+static long ap_expr(AParser *a) {
+    long left = ap_term(a);
+    ap_ws(a);
+    while (*a->p == '+' || (*a->p == '-' && a->p[1] != ')')) {
+        char op = *a->p++;
+        ap_ws(a);
+        long right = ap_term(a);
+        left = (op == '+') ? left + right : left - right;
+        ap_ws(a);
+    }
+    return left;
+}
+
+/* Evaluate one $((expr)) starting just AFTER the opening '(('.
+ * Sets *endp to point just past the closing '))'. */
+static long arith_eval(const char *expr_start, const char **endp) {
+    /* Find closing )) using inner-paren depth */
+    const char *p = expr_start;
+    int depth = 0;
+    while (*p) {
+        if (*p == '(') { depth++; p++; }
+        else if (*p == ')') {
+            if (depth == 0 && *(p+1) == ')') break;  /* found )) */
+            depth--; p++;
+        } else { p++; }
+    }
+    /* Extract expression string */
+    size_t len = (size_t)(p - expr_start);
+    char *expr = malloc(len + 1);
+    memcpy(expr, expr_start, len);
+    expr[len] = '\0';
+    AParser ap; ap.p = expr;
+    long result = ap_expr(&ap);
+    free(expr);
+    *endp = (*p == ')' && *(p+1) == ')') ? p + 2 : p;
+    return result;
+}
+
+/* Scan line for $((expr)) patterns and substitute numeric results.
+ * Returns a heap-alloc'd string the caller must free. */
+static char *preprocess_arith(const char *line) {
+    /* Worst case: every char becomes a large number string */
+    size_t sz = strlen(line) * 4 + 64;
+    char *out = malloc(sz);
+    if (!out) return strdup(line);
+    char *o = out;
+
+    for (const char *p = line; *p; ) {
+        if (p[0] == '$' && p[1] == '(' && p[2] == '(') {
+            const char *endp;
+            long val = arith_eval(p + 3, &endp);
+            int n = snprintf(o, sz - (size_t)(o - out), "%ld", val);
+            o += n;
+            p = endp;
+        } else {
+            *o++ = *p++;
+        }
+    }
+    *o = '\0';
+    return out;
+}
+
+/* ── Quoted string pre-processing ───────────────────────────────────────────
+ * Called in bnfc_repl() BEFORE psInput() so double-quoted strings survive
+ * the BNFC lexer (which splits on whitespace).
+ *
+ * Strategy:
+ *   - Strip the surrounding " characters
+ *   - Replace every space INSIDE "..." with backtick ` (the placeholder)
+ *   - Backtick is in the Word token charset so "hello world" becomes the
+ *     single token hello`world inside the grammar
+ *
+ * After parsing, expand_and_unquote() converts ` back to space.
+ * Limitation: nested quotes and \" escape sequences are not handled.
+ */
+static char *preprocess_quotes(const char *line) {
+    char *buf = malloc(strlen(line) + 1);
+    if (!buf) return strdup(line);
+    char *out    = buf;
+    int   in_q   = 0;
+    for (const char *p = line; *p; p++) {
+        if (*p == '"') {
+            in_q = !in_q;   /* toggle; strip the " itself */
+        } else if (*p == ' ' && in_q) {
+            *out++ = '`';   /* space inside quote → placeholder */
+        } else {
+            *out++ = *p;
+        }
+    }
+    *out = '\0';
+    return buf;
+}
+
+/* expand_and_unquote — expand $vars then restore ` placeholders to spaces.
+ * Returns a heap-alloc'd string the caller must free. */
+static char *expand_and_unquote(const char *word) {
+    char *s = expand_vars(word);
+    for (char *p = s; *p; p++)
+        if (*p == '`') *p = ' ';
+    return s;
+}
+
+/* ── Helper: run every job in a ListJob ─────────────────────────────────── */
+static void eval_run_listjob(ListJob lj) {
+    while (lj) { eval_job(lj->job_); lj = lj->listjob_; }
+}
+
+/* (eval_cmdline, eval_negcmd, eval_condition defined later in eval_job block) */
+
+/* ── eval_optelse — walk the else/elif chain ─────────────────────────────── *
+ * cond_failed = 1 means the preceding if/elif condition returned non-zero,
+ * so we should try the next branch.  cond_failed = 0 means a branch already
+ * ran; skip everything and return immediately. */
+static void eval_optelse(OptElse oe, int cond_failed) {
+    if (!cond_failed) return;       /* a branch already ran — nothing to do */
+    switch (oe->kind) {
+    case is_NoElse:
+        break;
+    case is_ElsePart:
+        eval_run_listjob(oe->u.elsepart_.listjob_);
+        break;
+    case is_ElifPart: {
+        int rc = eval_condition(oe->u.elifpart_.condition_);
+        if (rc == 0)
+            eval_run_listjob(oe->u.elifpart_.listjob_);
+        eval_optelse(oe->u.elifpart_.optelse_, rc != 0);
+        break;
+    }
+    }
+}
+
+/* Append one word to argv[], expanding globs (*.c, ?) via glob(GLOB_NOCHECK).
+ * GLOB_NOCHECK passes the pattern through unchanged when there are no matches.
+ * Returns the new argc. */
+static int append_word_glob(char **argv, int argc, const char *word) {
+    if (strchr(word, '*') || strchr(word, '?') || strchr(word, '[')) {
+        glob_t g;
+        if (glob(word, GLOB_NOCHECK, NULL, &g) == 0) {
+            for (size_t k = 0; k < g.gl_pathc && argc < BNFC_MAX_ARGS; k++)
+                argv[argc++] = strdup(g.gl_pathv[k]);
+            globfree(&g);
+            return argc;
+        }
+    }
+    argv[argc++] = strdup(word);
+    return argc;
+}
+
+/* ── AST walker: CommandPart → fill one cmd_t ────────────────────────────── */
+
+static void eval_cmdpart(CommandPart cp, cmd_t *cmd) {
+    char **argv = malloc(((size_t)BNFC_MAX_ARGS + 1) * sizeof(char *));
+    int    argc = 0;
+
+    /* First word is the command name — expand vars but not globs */
+    argv[argc++] = expand_and_unquote(cp->u.cmd_.word_);
+
+    /* Remaining words: expand vars then apply glob */
+    ListWord lw = cp->u.cmd_.listword_;
+    while (lw && argc < BNFC_MAX_ARGS) {
+        char *expanded = expand_and_unquote(lw->word_);
+        argc = append_word_glob(argv, argc, expanded);
+        free(expanded);
+        lw = lw->listword_;
+    }
+    argv[argc] = NULL;
+
+    cmd->argv         = argv;
+    cmd->argc         = argc;
+    cmd->stdin_file   = NULL;
+    cmd->stdout_file  = NULL;
+    cmd->stdout_append= 0;
+    cmd->background   = 0;
+    cmd->pipe_next    = 0;
+    cmd->first = cmd->last = 0;
+    cmd->sep   = ";";
+}
+
+/* ── AST walker: Pipeline → fill cmd_t array, return stage count ─────────── */
+
+static int eval_pipeline_ast(Pipeline pl, cmd_t *cmds, int idx) {
+    if (pl->kind == is_Single) {
+        eval_cmdpart(pl->u.single_.commandpart_, &cmds[idx]);
+        return idx + 1;
+    }
+    /* is_Pipe: current stage feeds into the next */
+    eval_cmdpart(pl->u.pipe_.commandpart_, &cmds[idx]);
+    cmds[idx].pipe_next = 1;
+    return eval_pipeline_ast(pl->u.pipe_.pipeline_, cmds, idx + 1);
+}
+
+/* ── AST walker: OptRedir → apply to cmd_t array ────────────────────────── */
+
+static void eval_redir(OptRedir redir, cmd_t *cmds, int n) {
+    switch (redir->kind) {
+    case is_NoRedir:
+        break;
+    case is_OutRedir:
+        cmds[n-1].stdout_file   = expand_and_unquote(redir->u.outredir_.word_);
+        cmds[n-1].stdout_append = 0;
+        break;
+    case is_AppendRedir:
+        cmds[n-1].stdout_file   = expand_and_unquote(redir->u.appendredir_.word_);
+        cmds[n-1].stdout_append = 1;
+        break;
+    case is_InRedir:
+        cmds[0].stdin_file = expand_and_unquote(redir->u.inredir_.word_);
+        break;
+    case is_InOutRedir:
+        cmds[0].stdin_file      = expand_and_unquote(redir->u.inoutredir_.word_1);
+        cmds[n-1].stdout_file   = expand_and_unquote(redir->u.inoutredir_.word_2);
+        cmds[n-1].stdout_append = 0;
+        break;
+    case is_OutInRedir:
+        cmds[n-1].stdout_file   = expand_and_unquote(redir->u.outinredir_.word_1);
+        cmds[n-1].stdout_append = 0;
+        cmds[0].stdin_file      = expand_and_unquote(redir->u.outinredir_.word_2);
+        break;
+    }
+}
+
+/* ── AST walker: free argv arrays built by eval_cmdpart ──────────────────── */
+
+static void free_bnfc_cmds(cmd_t *cmds, int n) {
+    for (int i = 0; i < n; i++) {
+        if (cmds[i].argv) {
+            for (int j = 0; cmds[i].argv[j]; j++) free(cmds[i].argv[j]);
+            free(cmds[i].argv);
+        }
+        free(cmds[i].stdin_file);
+        free(cmds[i].stdout_file);
+    }
+}
+
+/* ── AST walker: Job → build cmd_t array and execute ────────────────────── */
+
+/* ── eval_cmdline — run a single CommandLine (pipeline + redir) ──────────── */
+static int eval_cmdline(CommandLine cl) {
+    cmd_t cmds[BNFC_MAX_PIPELINE];
+    int   n = eval_pipeline_ast(cl->u.mkcmdline_.pipeline_, cmds, 0);
+    eval_redir(cl->u.mkcmdline_.optredir_, cmds, n);
+    cmds[n-1].background = 0;
+    int rc = (n == 1) ? bnfc_run_cmd(&cmds[0]) : run_pipeline(cmds, n);
+    free_bnfc_cmds(cmds, n);
+    return rc;
+}
+
+/* ── eval_negcmd — evaluate an optionally-negated CommandLine ────────────── */
+static int eval_negcmd(NegCmd nc) {
+    switch (nc->kind) {
+    case is_PlainCL:
+        return eval_cmdline(nc->u.plaincl_.commandline_);
+
+    case is_NotCL: {
+        /* ! applies to any NegCmd: !cmd, !(subshell), !{group} */
+        int rc = eval_negcmd(nc->u.notcl_.negcmd_);
+        return (rc == 0) ? 1 : 0;   /* invert exit code */
+    }
+
+    case is_Subshell: {
+        /* Run commands in a child process.
+         * cd/variables inside do NOT affect the parent shell. */
+        fflush(NULL);
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* child: restore default signals, run jobs, exit */
+            signal(SIGINT,  SIG_DFL);
+            signal(SIGQUIT, SIG_DFL);
+            signal(SIGTSTP, SIG_DFL);
+            int rc = 0;
+            ListJob lj = nc->u.subshell_.listjob_;
+            while (lj) { rc = eval_job(lj->job_); lj = lj->listjob_; }
+            exit(rc);
+        } else if (pid > 0) {
+            int status;
+            waitpid(pid, &status, 0);
+            return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+        }
+        perror("aishell: fork");
+        return 1;
+    }
+
+    case is_Group: {
+        /* Run commands in the current process.
+         * cd/variables inside DO affect the parent shell. */
+        int rc = 0;
+        ListJob lj = nc->u.group_.listjob_;
+        while (lj) { rc = eval_job(lj->job_); lj = lj->listjob_; }
+        return rc;
+    }
+
+    case is_TimeCmd: {
+        /* Measure real elapsed time of the inner NegCmd (pipeline, subshell, etc.)
+         * Output format matches bash: real / user / sys (we report real only). */
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+
+        int rc = eval_negcmd(nc->u.timecmd_.negcmd_);
+
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+
+        double real_s = (double)(t1.tv_sec  - t0.tv_sec)
+                      + (double)(t1.tv_nsec - t0.tv_nsec) * 1e-9;
+
+        /* Print to stderr (same as bash) so it doesn't pollute stdout pipelines */
+        fprintf(stderr, "\nreal\t%.3fs\n", real_s);
+        return rc;
+    }
+    }
+    return 1;
+}
+
+/* ── eval_condition — AND/OR chain evaluation (short-circuit) ────────────── *
+ * CondAnd: run LEFT; if 0 (success) run RIGHT; else stop (short-circuit).   *
+ * CondOr:  run LEFT; if non-0 (failure) run RIGHT; else stop (short-circuit).*
+ * Note: BNFC stores CondAnd/CondOr fields in reverse grammar order:          *
+ *   condand_.negcmd_     = LEFT  NegCmd                                      *
+ *   condand_.condition_  = RIGHT Condition                                   */
+static int eval_condition(Condition cond) {
+    switch (cond->kind) {
+    case is_CondSingle:
+        return eval_negcmd(cond->u.condsingle_.negcmd_);
+    case is_CondAnd: {
+        int rc = eval_negcmd(cond->u.condand_.negcmd_);        /* LEFT  */
+        if (rc == 0)
+            return eval_condition(cond->u.condand_.condition_); /* RIGHT */
+        return rc;   /* short-circuit: RIGHT skipped */
+    }
+    case is_CondOr: {
+        int rc = eval_negcmd(cond->u.condor_.negcmd_);         /* LEFT  */
+        if (rc != 0)
+            return eval_condition(cond->u.condor_.condition_);  /* RIGHT */
+        return rc;   /* short-circuit: RIGHT skipped */
+    }
+    }
+    return 1;
+}
+
+/* ── eval_job ───────────────────────────────────────────────────────────────*/
+static int eval_job(Job job) {
+    switch (job->kind) {
+
+    case is_OneJobFG: {
+        /* Foreground: run the full Condition (handles &&, ||, !) */
+        int rc = eval_condition(job->u.onejobfg_.condition_);
+        g_last_status = rc;
+        return rc;
+    }
+
+    case is_OneJobBG: {
+        Condition cond = job->u.onejobbg_.condition_;
+        /* Simple single command → existing background thread/fork dispatch */
+        if (cond->kind == is_CondSingle &&
+            cond->u.condsingle_.negcmd_->kind == is_PlainCL) {
+            CommandLine cl = cond->u.condsingle_.negcmd_->u.plaincl_.commandline_;
+            cmd_t cmds[BNFC_MAX_PIPELINE];
+            int n = eval_pipeline_ast(cl->u.mkcmdline_.pipeline_, cmds, 0);
+            eval_redir(cl->u.mkcmdline_.optredir_, cmds, n);
+            cmds[n-1].background = 1;
+            int rc = (n == 1) ? bnfc_run_cmd(&cmds[0]) : run_pipeline(cmds, n);
+            free_bnfc_cmds(cmds, n);
+            return rc;
+        }
+        /* Compound condition with &: run synchronously (& noted but ignored) */
+        return eval_condition(cond);
+    }
+
+    case is_AssignJob: {
+        /* x=value — split on '=' and store */
+        char *raw = strdup(job->u.assignjob_.assign_);
+        char *eq  = strchr(raw, '=');
+        if (eq) {
+            *eq = '\0';
+            char *val = expand_and_unquote(eq + 1);
+            var_set(raw, val);
+            free(val);
+        }
+        free(raw);
+        return 0;
+    }
+
+    case is_IfStmt: {
+        /* if <Condition> then <jobs> [elif/else] fi */
+        int rc = eval_condition(job->u.ifstmt_.condition_);
+        if (rc == 0)
+            eval_run_listjob(job->u.ifstmt_.listjob_);
+        eval_optelse(job->u.ifstmt_.optelse_, rc != 0);
+        return 0;
+    }
+
+    default:
+        return 1;
+    }
+}
+
+/* ── AST walker: Input (top-level ListJob) ───────────────────────────────── */
+
+static int eval_input(Input ast) {
+    int rc = 0;
+    ListJob lj = ast->u.startinput_.listjob_;
+    while (lj) {
+        rc = eval_job(lj->job_);
+        lj = lj->listjob_;
+    }
+    return rc;
+}
+
+/* ── @-prefix natural language handler ──────────────────────────────────── */
+/* Forks mysh_llm with the query, reads back a suggested command,
+ * shows it to the user, and re-parses it if confirmed.             */
+
+static int handle_llm_line(const char *query) {
+    int   pipefd[2];
+    char  suggested[1024] = "";
+
+    /* Skip empty or whitespace-only queries */
+    const char *p = query;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '\0') {
+        fprintf(stderr, "aishell: @ requires a query, e.g.  @list c files\n");
+        return 1;
+    }
+
+    if (pipe(pipefd) < 0) { perror("pipe"); return 1; }
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        /* Try ./mysh_llm (same directory as aishell) first, then PATH */
+        execl("./mysh_llm", "mysh_llm", query, (char *)NULL);
+        execlp("mysh_llm", "mysh_llm", query, (char *)NULL);
+        /* Hard fallback if neither found */
+        printf("echo %s\n", query);
+        fflush(stdout);
+        _exit(0);
+    }
+    close(pipefd[1]);
+    ssize_t n = read(pipefd[0], suggested, sizeof(suggested) - 1);
+    if (n > 0) {
+        suggested[n] = '\0';
+        /* strip trailing newline */
+        char *nl = strchr(suggested, '\n');
+        if (nl) *nl = '\0';
+    }
+    close(pipefd[0]);
+    int status; waitpid(pid, &status, 0);
+
+    fprintf(stderr, "\033[0;33msuggested:\033[0m %s\n", suggested);
+    fprintf(stderr, "run it? [y/N] ");
+    fflush(stderr);
+
+    char ans[8] = "";
+    if (fgets(ans, sizeof(ans), stdin) && (ans[0] == 'y' || ans[0] == 'Y')) {
+        char *proc = preprocess_quotes(suggested);
+        Input ast = psInput(proc);
+        free(proc);
+        if (!ast) { fprintf(stderr, "aishell: parse error\n"); return 1; }
+        int rc = eval_input(ast);
+        return rc;
+    }
+    return 0;
+}
+
+/* ── --commands-json: emit full command catalog ──────────────────────────── */
+
+/* JSON-escape a string: replace " → \", \ → \\, newline → \n, tab → \t */
+static void json_puts(const char *s) {
+    if (!s) return;
+    for (; *s; s++) {
+        switch (*s) {
+        case '"':  printf("\\\""); break;
+        case '\\': printf("\\\\"); break;
+        case '\n': printf("\\n");  break;
+        case '\t': printf("\\t");  break;
+        case '\r': printf("\\r");  break;
+        default:   putchar(*s);    break;
+        }
+    }
+}
+
+static void print_one_cmd_json(const cmd_spec_t *spec, void *userdata) {
+    int *first = (int *)userdata;
+    if (!*first) printf(",\n");
+    *first = 0;
+    printf("  {\n");
+    printf("    \"name\": \"");        json_puts(spec->name);    printf("\",\n");
+    printf("    \"summary\": \"");    json_puts(spec->summary); printf("\",\n");
+    printf("    \"description\": \"");
+    json_puts(spec->long_help ? spec->long_help : spec->summary);
+    printf("\"\n  }");
+}
+
+static void commands_json_print(void) {
+    int first = 1;
+    printf("{\"commands\":[\n");
+    for_each_command(print_one_cmd_json, &first);
+    printf("\n]}\n");
+}
+
+/* ── BNFC REPL loop ──────────────────────────────────────────────────────── */
+/* Replaces the hand-rolled tokeniser (preprocess → tokenise →
+ * separate_commands) with: getline → psInput → eval_input.          */
+
+static void bnfc_repl(void) {
+    char   prompt[256] = "jshell% ";
+    char  *line   = NULL;
+    size_t len    = 0;
+    int    is_tty = isatty(STDIN_FILENO);
+
+    /* Ignore interactive signals in the shell process */
+    signal(SIGINT,  SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+
+    /* Initialise g_cwd */
+    pthread_mutex_lock(&cwd_mutex);
+    if (!getcwd(g_cwd, sizeof(g_cwd))) g_cwd[0] = '\0';
+    pthread_mutex_unlock(&cwd_mutex);
+
+    for (;;) {
+        /* Build prompt with current directory */
+        char display_prompt[4400];
+        pthread_mutex_lock(&cwd_mutex);
+        if (g_cwd[0])
+            snprintf(display_prompt, sizeof(display_prompt),
+                     "[%s] %s", g_cwd, prompt);
+        else
+            snprintf(display_prompt, sizeof(display_prompt), "%s", prompt);
+        pthread_mutex_unlock(&cwd_mutex);
+
+        if (is_tty)
+            fprintf(stderr, "\033[0;33m%s\033[0m", display_prompt);
+
+        /* EINTR-safe getline */
+        ssize_t nread;
+        do { nread = getline(&line, &len, stdin); }
+        while (nread < 0 && errno == EINTR);
+        if (nread < 0) break;   /* EOF */
+
+        /* Strip trailing newline */
+        if (nread > 0 && line[nread - 1] == '\n') line[nread - 1] = '\0';
+        if (line[0] == '\0') continue;
+
+        /* @-prefix: natural language input */
+        if (line[0] == '@') {
+            handle_llm_line(line + 1);
+            continue;
+        }
+
+        /* Pre-process step 1: evaluate $((expr)) arithmetic expansions.
+         * Must run before quote processing so "$((2+3))" → "5" correctly. */
+        char *after_arith = preprocess_arith(line);
+
+        /* Pre-process step 2: strip " and replace spaces inside "..." with `
+         * so quoted strings survive as single Word tokens in the BNFC parser. */
+        char *processed = preprocess_quotes(after_arith);
+        free(after_arith);
+
+        /* Parse with BNFC — psInput() writes its own syntax error to stderr
+         * (e.g. "syntax error, unexpected PIPE") before returning NULL.
+         * We add the offending line so the user can see what was rejected. */
+        Input ast = psInput(processed);
+        free(processed);
+        if (!ast) {
+            fprintf(stderr, "aishell: syntax error in: %s\n", line);
+            g_last_status = 1;
+            continue;
+        }
+
+        int rc = eval_input(ast);
+        g_last_status = rc;
+    }
+
+    free(line);
+}
+
+#endif /* USE_BNFC */
