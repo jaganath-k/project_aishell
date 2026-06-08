@@ -19,6 +19,12 @@ env export unset type
 /tmp/
 *.tmp
 
+# Runtime log (append-mode, not version-controlled)
+aishell_calls.log
+
+# Generated presentation files
+*.pptx
+
 # Registry — Node dependencies and uploaded tarballs
 registry/node_modules/
 registry/files/*.tar.gz

@@ -157,9 +157,12 @@ CommandLine make_MkCmdLine(Pipeline p0, OptRedir p1);
 
 struct OptRedir_
 {
-  enum { is_NoRedir, is_AppendRedir, is_OutRedir, is_InRedir, is_InOutRedir, is_OutInRedir } kind;
+  enum { is_NoRedir, is_ErrAppRedir, is_ErrRedir, is_BothRedir, is_AppendRedir, is_OutRedir, is_InRedir, is_InOutRedir, is_OutInRedir } kind;
   union
   {
+    struct { Word word_; } errappredir_;
+    struct { Word word_; } errredir_;
+    struct { Word word_; } bothredir_;
     struct { Word word_; } appendredir_;
     struct { Word word_; } outredir_;
     struct { Word word_; } inredir_;
@@ -169,6 +172,9 @@ struct OptRedir_
 };
 
 OptRedir make_NoRedir(void);
+OptRedir make_ErrAppRedir(Word p0);
+OptRedir make_ErrRedir(Word p0);
+OptRedir make_BothRedir(Word p0);
 OptRedir make_AppendRedir(Word p0);
 OptRedir make_OutRedir(Word p0);
 OptRedir make_InRedir(Word p0);

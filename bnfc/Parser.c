@@ -163,36 +163,39 @@ enum yysymbol_kind_t
   YYSYMBOL__BANG = 4,                      /* _BANG  */
   YYSYMBOL__AMP = 5,                       /* _AMP  */
   YYSYMBOL__DAMP = 6,                      /* _DAMP  */
-  YYSYMBOL__LPAREN = 7,                    /* _LPAREN  */
-  YYSYMBOL__RPAREN = 8,                    /* _RPAREN  */
-  YYSYMBOL__SEMI = 9,                      /* _SEMI  */
-  YYSYMBOL__LT = 10,                       /* _LT  */
-  YYSYMBOL__GT = 11,                       /* _GT  */
-  YYSYMBOL__DGT = 12,                      /* _DGT  */
-  YYSYMBOL__KW_elif = 13,                  /* _KW_elif  */
-  YYSYMBOL__KW_else = 14,                  /* _KW_else  */
-  YYSYMBOL__KW_fi = 15,                    /* _KW_fi  */
-  YYSYMBOL__KW_if = 16,                    /* _KW_if  */
-  YYSYMBOL__KW_then = 17,                  /* _KW_then  */
-  YYSYMBOL__KW_time = 18,                  /* _KW_time  */
-  YYSYMBOL__LBRACE = 19,                   /* _LBRACE  */
-  YYSYMBOL__BAR = 20,                      /* _BAR  */
-  YYSYMBOL__DBAR = 21,                     /* _DBAR  */
-  YYSYMBOL__RBRACE = 22,                   /* _RBRACE  */
-  YYSYMBOL_T_Assign = 23,                  /* T_Assign  */
-  YYSYMBOL_T_Word = 24,                    /* T_Word  */
-  YYSYMBOL_YYACCEPT = 25,                  /* $accept  */
-  YYSYMBOL_Input = 26,                     /* Input  */
-  YYSYMBOL_Job = 27,                       /* Job  */
-  YYSYMBOL_ListJob = 28,                   /* ListJob  */
-  YYSYMBOL_OptElse = 29,                   /* OptElse  */
-  YYSYMBOL_Condition = 30,                 /* Condition  */
-  YYSYMBOL_NegCmd = 31,                    /* NegCmd  */
-  YYSYMBOL_CommandLine = 32,               /* CommandLine  */
-  YYSYMBOL_OptRedir = 33,                  /* OptRedir  */
-  YYSYMBOL_Pipeline = 34,                  /* Pipeline  */
-  YYSYMBOL_CommandPart = 35,               /* CommandPart  */
-  YYSYMBOL_ListWord = 36                   /* ListWord  */
+  YYSYMBOL__SYMB_11 = 7,                   /* _SYMB_11  */
+  YYSYMBOL__LPAREN = 8,                    /* _LPAREN  */
+  YYSYMBOL__RPAREN = 9,                    /* _RPAREN  */
+  YYSYMBOL__SYMB_10 = 10,                  /* _SYMB_10  */
+  YYSYMBOL__SYMB_9 = 11,                   /* _SYMB_9  */
+  YYSYMBOL__SEMI = 12,                     /* _SEMI  */
+  YYSYMBOL__LT = 13,                       /* _LT  */
+  YYSYMBOL__GT = 14,                       /* _GT  */
+  YYSYMBOL__DGT = 15,                      /* _DGT  */
+  YYSYMBOL__KW_elif = 16,                  /* _KW_elif  */
+  YYSYMBOL__KW_else = 17,                  /* _KW_else  */
+  YYSYMBOL__KW_fi = 18,                    /* _KW_fi  */
+  YYSYMBOL__KW_if = 19,                    /* _KW_if  */
+  YYSYMBOL__KW_then = 20,                  /* _KW_then  */
+  YYSYMBOL__KW_time = 21,                  /* _KW_time  */
+  YYSYMBOL__LBRACE = 22,                   /* _LBRACE  */
+  YYSYMBOL__BAR = 23,                      /* _BAR  */
+  YYSYMBOL__DBAR = 24,                     /* _DBAR  */
+  YYSYMBOL__RBRACE = 25,                   /* _RBRACE  */
+  YYSYMBOL_T_Assign = 26,                  /* T_Assign  */
+  YYSYMBOL_T_Word = 27,                    /* T_Word  */
+  YYSYMBOL_YYACCEPT = 28,                  /* $accept  */
+  YYSYMBOL_Input = 29,                     /* Input  */
+  YYSYMBOL_Job = 30,                       /* Job  */
+  YYSYMBOL_ListJob = 31,                   /* ListJob  */
+  YYSYMBOL_OptElse = 32,                   /* OptElse  */
+  YYSYMBOL_Condition = 33,                 /* Condition  */
+  YYSYMBOL_NegCmd = 34,                    /* NegCmd  */
+  YYSYMBOL_CommandLine = 35,               /* CommandLine  */
+  YYSYMBOL_OptRedir = 36,                  /* OptRedir  */
+  YYSYMBOL_Pipeline = 37,                  /* Pipeline  */
+  YYSYMBOL_CommandPart = 38,               /* CommandPart  */
+  YYSYMBOL_ListWord = 39                   /* ListWord  */
 };
 typedef enum yysymbol_kind_t yysymbol_kind_t;
 
@@ -210,7 +213,7 @@ int yyparse(yyscan_t scanner, YYSTYPE *result);
 
 extern int yylex(YYSTYPE *lvalp, YYLTYPE *llocp, yyscan_t scanner);
 
-#line 214 "Parser.c"
+#line 217 "Parser.c"
 
 
 #ifdef short
@@ -537,19 +540,19 @@ union yyalloc
 /* YYFINAL -- State number of the termination state.  */
 #define YYFINAL  23
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   54
+#define YYLAST   59
 
 /* YYNTOKENS -- Number of terminals.  */
-#define YYNTOKENS  25
+#define YYNTOKENS  28
 /* YYNNTS -- Number of nonterminals.  */
 #define YYNNTS  12
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  31
+#define YYNRULES  34
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  58
+#define YYNSTATES  64
 
 /* YYMAXUTOK -- Last valid token kind.  */
-#define YYMAXUTOK   279
+#define YYMAXUTOK   282
 
 
 /* YYTRANSLATE(TOKEN-NUM) -- Symbol number corresponding to TOKEN-NUM
@@ -590,17 +593,18 @@ static const yytype_int8 yytranslate[] =
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     1,     2,     3,     4,
        5,     6,     7,     8,     9,    10,    11,    12,    13,    14,
-      15,    16,    17,    18,    19,    20,    21,    22,    23,    24
+      15,    16,    17,    18,    19,    20,    21,    22,    23,    24,
+      25,    26,    27
 };
 
 #if YYDEBUG
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
 static const yytype_uint8 yyrline[] =
 {
-       0,   146,   146,   148,   149,   150,   151,   153,   154,   156,
-     157,   158,   160,   161,   162,   164,   165,   166,   167,   168,
-     170,   172,   173,   174,   175,   176,   177,   179,   180,   182,
-     184,   185
+       0,   149,   149,   151,   152,   153,   154,   156,   157,   159,
+     160,   161,   163,   164,   165,   167,   168,   169,   170,   171,
+     173,   175,   176,   177,   178,   179,   180,   181,   182,   183,
+     185,   186,   188,   190,   191
 };
 #endif
 
@@ -617,11 +621,12 @@ static const char *yysymbol_name (yysymbol_kind_t yysymbol) YY_ATTRIBUTE_UNUSED;
 static const char *const yytname[] =
 {
   "\"end of file\"", "error", "\"invalid token\"", "_ERROR_", "_BANG",
-  "_AMP", "_DAMP", "_LPAREN", "_RPAREN", "_SEMI", "_LT", "_GT", "_DGT",
-  "_KW_elif", "_KW_else", "_KW_fi", "_KW_if", "_KW_then", "_KW_time",
-  "_LBRACE", "_BAR", "_DBAR", "_RBRACE", "T_Assign", "T_Word", "$accept",
-  "Input", "Job", "ListJob", "OptElse", "Condition", "NegCmd",
-  "CommandLine", "OptRedir", "Pipeline", "CommandPart", "ListWord", YY_NULLPTR
+  "_AMP", "_DAMP", "_SYMB_11", "_LPAREN", "_RPAREN", "_SYMB_10", "_SYMB_9",
+  "_SEMI", "_LT", "_GT", "_DGT", "_KW_elif", "_KW_else", "_KW_fi",
+  "_KW_if", "_KW_then", "_KW_time", "_LBRACE", "_BAR", "_DBAR", "_RBRACE",
+  "T_Assign", "T_Word", "$accept", "Input", "Job", "ListJob", "OptElse",
+  "Condition", "NegCmd", "CommandLine", "OptRedir", "Pipeline",
+  "CommandPart", "ListWord", YY_NULLPTR
 };
 
 static const char *
@@ -631,7 +636,7 @@ yysymbol_name (yysymbol_kind_t yysymbol)
 }
 #endif
 
-#define YYPACT_NINF (-24)
+#define YYPACT_NINF (-22)
 
 #define yypact_value_is_default(Yyn) \
   ((Yyn) == YYPACT_NINF)
@@ -645,12 +650,13 @@ yysymbol_name (yysymbol_kind_t yysymbol)
    STATE-NUM.  */
 static const yytype_int8 yypact[] =
 {
-       2,    12,     2,    12,    12,     2,   -24,   -23,     7,     5,
-     -24,     8,    -4,   -24,     0,    -5,   -24,    21,    16,   -24,
-      13,   -23,   -24,   -24,     2,   -24,    12,    12,    14,    15,
-      17,   -24,    18,   -24,     2,   -24,   -24,   -24,   -24,   -24,
-      23,    27,   -24,   -24,    10,    19,    20,    12,     2,    25,
-     -24,   -24,    28,   -24,   -24,     2,    10,   -24
+      -3,     4,    -3,     4,     4,    -3,   -22,   -10,    21,    20,
+     -22,    28,    -4,   -22,     0,    11,   -22,    27,    17,   -22,
+      14,   -10,   -22,   -22,    -3,   -22,     4,     4,    15,    16,
+      18,    19,    22,    23,   -22,    24,   -22,    -3,   -22,   -22,
+     -22,   -22,   -22,   -22,   -22,   -22,    26,    25,   -22,   -22,
+      13,    29,    30,     4,    -3,    35,   -22,   -22,    38,   -22,
+     -22,    -3,    13,   -22
 };
 
 /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
@@ -658,25 +664,26 @@ static const yytype_int8 yypact[] =
    means the default is an error.  */
 static const yytype_int8 yydefact[] =
 {
-       0,     0,     0,     0,     0,     0,     5,    30,     0,     7,
-       2,     3,    12,    15,    21,    27,    16,     0,     0,    17,
-       0,    30,    29,     1,     0,     4,     0,     0,     0,     0,
-       0,    20,     0,    18,     0,    19,    31,     8,    13,    14,
-      24,    23,    22,    28,     9,     0,     0,     0,     0,     0,
-      25,    26,     0,    10,     6,     0,     9,    11
+       0,     0,     0,     0,     0,     0,     5,    33,     0,     7,
+       2,     3,    12,    15,    21,    30,    16,     0,     0,    17,
+       0,    33,    32,     1,     0,     4,     0,     0,     0,     0,
+       0,     0,     0,     0,    20,     0,    18,     0,    19,    34,
+       8,    13,    14,    24,    23,    22,    27,    26,    25,    31,
+       9,     0,     0,     0,     0,     0,    28,    29,     0,    10,
+       6,     0,     9,    11
 };
 
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -24,   -24,   -24,    -2,    -9,     1,     4,   -24,   -24,    22,
-     -24,    29
+     -22,   -22,   -22,    -2,   -21,     1,     5,   -22,   -22,     9,
+     -22,    34
 };
 
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int8 yydefgoto[] =
 {
-       0,     8,     9,    10,    49,    11,    12,    13,    31,    14,
+       0,     8,     9,    10,    55,    11,    12,    13,    34,    14,
       15,    22
 };
 
@@ -685,43 +692,44 @@ static const yytype_int8 yydefgoto[] =
    number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_int8 yytable[] =
 {
-      17,    21,    26,    20,    18,    16,     1,    23,    19,     2,
-      28,    29,    30,    25,    24,    32,     1,    27,     3,     2,
-       4,     5,    37,    47,    48,     6,     7,    38,    39,    33,
-       4,     5,    44,    34,    45,    35,     7,    46,    40,    41,
-      54,    42,     7,    50,    51,    55,    53,    57,    52,     0,
-      36,     0,     0,    56,    43
+      17,     1,    26,    20,    18,     2,    16,    28,     1,    19,
+      29,    30,     2,    31,    32,    33,     3,    21,     4,     5,
+      27,    23,    40,     6,     7,     4,     5,    41,    42,    53,
+      54,     7,    24,    25,    35,    50,    36,    37,    52,    38,
+      51,    63,    43,    44,    49,    45,    46,     0,     0,    47,
+      48,     7,    59,    60,    58,    39,    56,    57,    61,    62
 };
 
 static const yytype_int8 yycheck[] =
 {
-       2,    24,     6,     5,     3,     1,     4,     0,     4,     7,
-      10,    11,    12,     5,     9,    20,     4,    21,    16,     7,
-      18,    19,    24,    13,    14,    23,    24,    26,    27,     8,
-      18,    19,    34,    17,    11,    22,    24,    10,    24,    24,
-      15,    24,    24,    24,    24,    17,    48,    56,    47,    -1,
-      21,    -1,    -1,    55,    32
+       2,     4,     6,     5,     3,     8,     1,     7,     4,     4,
+      10,    11,     8,    13,    14,    15,    19,    27,    21,    22,
+      24,     0,    24,    26,    27,    21,    22,    26,    27,    16,
+      17,    27,    12,     5,    23,    37,     9,    20,    13,    25,
+      14,    62,    27,    27,    35,    27,    27,    -1,    -1,    27,
+      27,    27,    54,    18,    53,    21,    27,    27,    20,    61
 };
 
 /* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
    state STATE-NUM.  */
 static const yytype_int8 yystos[] =
 {
-       0,     4,     7,    16,    18,    19,    23,    24,    26,    27,
-      28,    30,    31,    32,    34,    35,    31,    28,    30,    31,
-      28,    24,    36,     0,     9,     5,     6,    21,    10,    11,
-      12,    33,    20,     8,    17,    22,    36,    28,    30,    30,
-      24,    24,    24,    34,    28,    11,    10,    13,    14,    29,
-      24,    24,    30,    28,    15,    17,    28,    29
+       0,     4,     8,    19,    21,    22,    26,    27,    29,    30,
+      31,    33,    34,    35,    37,    38,    34,    31,    33,    34,
+      31,    27,    39,     0,    12,     5,     6,    24,     7,    10,
+      11,    13,    14,    15,    36,    23,     9,    20,    25,    39,
+      31,    33,    33,    27,    27,    27,    27,    27,    27,    37,
+      31,    14,    13,    16,    17,    32,    27,    27,    33,    31,
+      18,    20,    31,    32
 };
 
 /* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr1[] =
 {
-       0,    25,    26,    27,    27,    27,    27,    28,    28,    29,
-      29,    29,    30,    30,    30,    31,    31,    31,    31,    31,
-      32,    33,    33,    33,    33,    33,    33,    34,    34,    35,
-      36,    36
+       0,    28,    29,    30,    30,    30,    30,    31,    31,    32,
+      32,    32,    33,    33,    33,    34,    34,    34,    34,    34,
+      35,    36,    36,    36,    36,    36,    36,    36,    36,    36,
+      37,    37,    38,    39,    39
 };
 
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
@@ -729,8 +737,8 @@ static const yytype_int8 yyr2[] =
 {
        0,     2,     1,     1,     2,     1,     6,     1,     3,     0,
        2,     5,     1,     3,     3,     1,     2,     2,     3,     3,
-       2,     0,     2,     2,     2,     4,     4,     1,     3,     2,
-       0,     2
+       2,     0,     2,     2,     2,     2,     2,     2,     4,     4,
+       1,     3,     2,     0,     2
 };
 
 
@@ -1319,187 +1327,205 @@ yyreduce:
   switch (yyn)
     {
   case 2: /* Input: ListJob  */
-#line 146 "Grammar.y"
+#line 149 "Grammar.y"
                 { (yyval.input_) = make_StartInput((yyvsp[0].listjob_)); result->input_ = (yyval.input_); }
-#line 1325 "Parser.c"
+#line 1333 "Parser.c"
     break;
 
   case 3: /* Job: Condition  */
-#line 148 "Grammar.y"
+#line 151 "Grammar.y"
                 { (yyval.job_) = make_OneJobFG((yyvsp[0].condition_)); }
-#line 1331 "Parser.c"
+#line 1339 "Parser.c"
     break;
 
   case 4: /* Job: Condition _AMP  */
-#line 149 "Grammar.y"
+#line 152 "Grammar.y"
                    { (yyval.job_) = make_OneJobBG((yyvsp[-1].condition_)); }
-#line 1337 "Parser.c"
+#line 1345 "Parser.c"
     break;
 
   case 5: /* Job: T_Assign  */
-#line 150 "Grammar.y"
+#line 153 "Grammar.y"
              { (yyval.job_) = make_AssignJob((yyvsp[0]._string)); }
-#line 1343 "Parser.c"
+#line 1351 "Parser.c"
     break;
 
   case 6: /* Job: _KW_if Condition _KW_then ListJob OptElse _KW_fi  */
-#line 151 "Grammar.y"
+#line 154 "Grammar.y"
                                                      { (yyval.job_) = make_IfStmt((yyvsp[-4].condition_), (yyvsp[-2].listjob_), (yyvsp[-1].optelse_)); }
-#line 1349 "Parser.c"
+#line 1357 "Parser.c"
     break;
 
   case 7: /* ListJob: Job  */
-#line 153 "Grammar.y"
+#line 156 "Grammar.y"
               { (yyval.listjob_) = make_ListJob((yyvsp[0].job_), 0); }
-#line 1355 "Parser.c"
+#line 1363 "Parser.c"
     break;
 
   case 8: /* ListJob: Job _SEMI ListJob  */
-#line 154 "Grammar.y"
+#line 157 "Grammar.y"
                       { (yyval.listjob_) = make_ListJob((yyvsp[-2].job_), (yyvsp[0].listjob_)); }
-#line 1361 "Parser.c"
+#line 1369 "Parser.c"
     break;
 
   case 9: /* OptElse: %empty  */
-#line 156 "Grammar.y"
+#line 159 "Grammar.y"
                       { (yyval.optelse_) = make_NoElse(); }
-#line 1367 "Parser.c"
+#line 1375 "Parser.c"
     break;
 
   case 10: /* OptElse: _KW_else ListJob  */
-#line 157 "Grammar.y"
+#line 160 "Grammar.y"
                      { (yyval.optelse_) = make_ElsePart((yyvsp[0].listjob_)); }
-#line 1373 "Parser.c"
+#line 1381 "Parser.c"
     break;
 
   case 11: /* OptElse: _KW_elif Condition _KW_then ListJob OptElse  */
-#line 158 "Grammar.y"
+#line 161 "Grammar.y"
                                                 { (yyval.optelse_) = make_ElifPart((yyvsp[-3].condition_), (yyvsp[-1].listjob_), (yyvsp[0].optelse_)); }
-#line 1379 "Parser.c"
+#line 1387 "Parser.c"
     break;
 
   case 12: /* Condition: NegCmd  */
-#line 160 "Grammar.y"
+#line 163 "Grammar.y"
                    { (yyval.condition_) = make_CondSingle((yyvsp[0].negcmd_)); }
-#line 1385 "Parser.c"
+#line 1393 "Parser.c"
     break;
 
   case 13: /* Condition: NegCmd _DAMP Condition  */
-#line 161 "Grammar.y"
+#line 164 "Grammar.y"
                            { (yyval.condition_) = make_CondAnd((yyvsp[-2].negcmd_), (yyvsp[0].condition_)); }
-#line 1391 "Parser.c"
+#line 1399 "Parser.c"
     break;
 
   case 14: /* Condition: NegCmd _DBAR Condition  */
-#line 162 "Grammar.y"
+#line 165 "Grammar.y"
                            { (yyval.condition_) = make_CondOr((yyvsp[-2].negcmd_), (yyvsp[0].condition_)); }
-#line 1397 "Parser.c"
+#line 1405 "Parser.c"
     break;
 
   case 15: /* NegCmd: CommandLine  */
-#line 164 "Grammar.y"
+#line 167 "Grammar.y"
                      { (yyval.negcmd_) = make_PlainCL((yyvsp[0].commandline_)); }
-#line 1403 "Parser.c"
+#line 1411 "Parser.c"
     break;
 
   case 16: /* NegCmd: _BANG NegCmd  */
-#line 165 "Grammar.y"
+#line 168 "Grammar.y"
                  { (yyval.negcmd_) = make_NotCL((yyvsp[0].negcmd_)); }
-#line 1409 "Parser.c"
+#line 1417 "Parser.c"
     break;
 
   case 17: /* NegCmd: _KW_time NegCmd  */
-#line 166 "Grammar.y"
+#line 169 "Grammar.y"
                     { (yyval.negcmd_) = make_TimeCmd((yyvsp[0].negcmd_)); }
-#line 1415 "Parser.c"
+#line 1423 "Parser.c"
     break;
 
   case 18: /* NegCmd: _LPAREN ListJob _RPAREN  */
-#line 167 "Grammar.y"
+#line 170 "Grammar.y"
                             { (yyval.negcmd_) = make_Subshell((yyvsp[-1].listjob_)); }
-#line 1421 "Parser.c"
+#line 1429 "Parser.c"
     break;
 
   case 19: /* NegCmd: _LBRACE ListJob _RBRACE  */
-#line 168 "Grammar.y"
+#line 171 "Grammar.y"
                             { (yyval.negcmd_) = make_Group((yyvsp[-1].listjob_)); }
-#line 1427 "Parser.c"
+#line 1435 "Parser.c"
     break;
 
   case 20: /* CommandLine: Pipeline OptRedir  */
-#line 170 "Grammar.y"
+#line 173 "Grammar.y"
                                 { (yyval.commandline_) = make_MkCmdLine((yyvsp[-1].pipeline_), (yyvsp[0].optredir_)); }
-#line 1433 "Parser.c"
+#line 1441 "Parser.c"
     break;
 
   case 21: /* OptRedir: %empty  */
-#line 172 "Grammar.y"
-                       { (yyval.optredir_) = make_NoRedir(); }
-#line 1439 "Parser.c"
-    break;
-
-  case 22: /* OptRedir: _DGT T_Word  */
-#line 173 "Grammar.y"
-                { (yyval.optredir_) = make_AppendRedir((yyvsp[0]._string)); }
-#line 1445 "Parser.c"
-    break;
-
-  case 23: /* OptRedir: _GT T_Word  */
-#line 174 "Grammar.y"
-               { (yyval.optredir_) = make_OutRedir((yyvsp[0]._string)); }
-#line 1451 "Parser.c"
-    break;
-
-  case 24: /* OptRedir: _LT T_Word  */
 #line 175 "Grammar.y"
-               { (yyval.optredir_) = make_InRedir((yyvsp[0]._string)); }
-#line 1457 "Parser.c"
+                       { (yyval.optredir_) = make_NoRedir(); }
+#line 1447 "Parser.c"
     break;
 
-  case 25: /* OptRedir: _LT T_Word _GT T_Word  */
+  case 22: /* OptRedir: _SYMB_9 T_Word  */
 #line 176 "Grammar.y"
-                          { (yyval.optredir_) = make_InOutRedir((yyvsp[-2]._string), (yyvsp[0]._string)); }
-#line 1463 "Parser.c"
+                   { (yyval.optredir_) = make_ErrAppRedir((yyvsp[0]._string)); }
+#line 1453 "Parser.c"
     break;
 
-  case 26: /* OptRedir: _GT T_Word _LT T_Word  */
+  case 23: /* OptRedir: _SYMB_10 T_Word  */
 #line 177 "Grammar.y"
-                          { (yyval.optredir_) = make_OutInRedir((yyvsp[-2]._string), (yyvsp[0]._string)); }
-#line 1469 "Parser.c"
+                    { (yyval.optredir_) = make_ErrRedir((yyvsp[0]._string)); }
+#line 1459 "Parser.c"
     break;
 
-  case 27: /* Pipeline: CommandPart  */
+  case 24: /* OptRedir: _SYMB_11 T_Word  */
+#line 178 "Grammar.y"
+                    { (yyval.optredir_) = make_BothRedir((yyvsp[0]._string)); }
+#line 1465 "Parser.c"
+    break;
+
+  case 25: /* OptRedir: _DGT T_Word  */
 #line 179 "Grammar.y"
-                       { (yyval.pipeline_) = make_Single((yyvsp[0].commandpart_)); }
-#line 1475 "Parser.c"
+                { (yyval.optredir_) = make_AppendRedir((yyvsp[0]._string)); }
+#line 1471 "Parser.c"
     break;
 
-  case 28: /* Pipeline: CommandPart _BAR Pipeline  */
+  case 26: /* OptRedir: _GT T_Word  */
 #line 180 "Grammar.y"
-                              { (yyval.pipeline_) = make_Pipe((yyvsp[-2].commandpart_), (yyvsp[0].pipeline_)); }
-#line 1481 "Parser.c"
+               { (yyval.optredir_) = make_OutRedir((yyvsp[0]._string)); }
+#line 1477 "Parser.c"
     break;
 
-  case 29: /* CommandPart: T_Word ListWord  */
+  case 27: /* OptRedir: _LT T_Word  */
+#line 181 "Grammar.y"
+               { (yyval.optredir_) = make_InRedir((yyvsp[0]._string)); }
+#line 1483 "Parser.c"
+    break;
+
+  case 28: /* OptRedir: _LT T_Word _GT T_Word  */
 #line 182 "Grammar.y"
-                              { (yyval.commandpart_) = make_Cmd((yyvsp[-1]._string), (yyvsp[0].listword_)); }
-#line 1487 "Parser.c"
+                          { (yyval.optredir_) = make_InOutRedir((yyvsp[-2]._string), (yyvsp[0]._string)); }
+#line 1489 "Parser.c"
     break;
 
-  case 30: /* ListWord: %empty  */
-#line 184 "Grammar.y"
-                       { (yyval.listword_) = 0; }
-#line 1493 "Parser.c"
+  case 29: /* OptRedir: _GT T_Word _LT T_Word  */
+#line 183 "Grammar.y"
+                          { (yyval.optredir_) = make_OutInRedir((yyvsp[-2]._string), (yyvsp[0]._string)); }
+#line 1495 "Parser.c"
     break;
 
-  case 31: /* ListWord: T_Word ListWord  */
+  case 30: /* Pipeline: CommandPart  */
 #line 185 "Grammar.y"
+                       { (yyval.pipeline_) = make_Single((yyvsp[0].commandpart_)); }
+#line 1501 "Parser.c"
+    break;
+
+  case 31: /* Pipeline: CommandPart _BAR Pipeline  */
+#line 186 "Grammar.y"
+                              { (yyval.pipeline_) = make_Pipe((yyvsp[-2].commandpart_), (yyvsp[0].pipeline_)); }
+#line 1507 "Parser.c"
+    break;
+
+  case 32: /* CommandPart: T_Word ListWord  */
+#line 188 "Grammar.y"
+                              { (yyval.commandpart_) = make_Cmd((yyvsp[-1]._string), (yyvsp[0].listword_)); }
+#line 1513 "Parser.c"
+    break;
+
+  case 33: /* ListWord: %empty  */
+#line 190 "Grammar.y"
+                       { (yyval.listword_) = 0; }
+#line 1519 "Parser.c"
+    break;
+
+  case 34: /* ListWord: T_Word ListWord  */
+#line 191 "Grammar.y"
                     { (yyval.listword_) = make_ListWord((yyvsp[-1]._string), (yyvsp[0].listword_)); }
-#line 1499 "Parser.c"
+#line 1525 "Parser.c"
     break;
 
 
-#line 1503 "Parser.c"
+#line 1529 "Parser.c"
 
       default: break;
     }
@@ -1697,7 +1723,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 188 "Grammar.y"
+#line 194 "Grammar.y"
 
 
 

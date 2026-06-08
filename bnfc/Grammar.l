@@ -54,6 +54,9 @@ IDENT [a-zA-Z0-9'_]
 <INITIAL>")"      	 return _RPAREN;
 <INITIAL>"{"      	 return _LBRACE;
 <INITIAL>"}"      	 return _RBRACE;
+<INITIAL>"2>>"      	 return _SYMB_9;
+<INITIAL>"2>"      	 return _SYMB_10;
+<INITIAL>"&>"      	 return _SYMB_11;
 <INITIAL>">>"      	 return _DGT;
 <INITIAL>">"      	 return _GT;
 <INITIAL>"<"      	 return _LT;
@@ -71,8 +74,8 @@ IDENT [a-zA-Z0-9'_]
 <COMMENT>.    /* skip */;
 <COMMENT>[\n] /* skip */;
 
-<INITIAL>(\$|\*|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))+    	 yylval->_string = strdup(yytext); return T_Word;
-<INITIAL>{LETTER}(\_|({DIGIT}|{LETTER}))*\=(\$|\*|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))*    	 yylval->_string = strdup(yytext); return T_Assign;
+<INITIAL>(\$|\%|\*|\+|\,|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))+    	 yylval->_string = strdup(yytext); return T_Word;
+<INITIAL>{LETTER}(\_|({DIGIT}|{LETTER}))*\=(\$|\%|\*|\+|\,|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))*    	 yylval->_string = strdup(yytext); return T_Assign;
 <INITIAL>[ \t\r\n\f]      	 /* ignore white space. */;
 <INITIAL>.      	 return _ERROR_;
 
