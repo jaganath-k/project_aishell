@@ -108,8 +108,11 @@ extern int yylex(YYSTYPE *lvalp, YYLTYPE *llocp, yyscan_t scanner);
 %token          _BANG     /* ! */
 %token          _AMP      /* & */
 %token          _DAMP     /* && */
+%token          _SYMB_11  /* &> */
 %token          _LPAREN   /* ( */
 %token          _RPAREN   /* ) */
+%token          _SYMB_10  /* 2> */
+%token          _SYMB_9   /* 2>> */
 %token          _SEMI     /* ; */
 %token          _LT       /* < */
 %token          _GT       /* > */
@@ -170,6 +173,9 @@ NegCmd : CommandLine { $$ = make_PlainCL($1); }
 CommandLine : Pipeline OptRedir { $$ = make_MkCmdLine($1, $2); }
 ;
 OptRedir : /* empty */ { $$ = make_NoRedir(); }
+  | _SYMB_9 T_Word { $$ = make_ErrAppRedir($2); }
+  | _SYMB_10 T_Word { $$ = make_ErrRedir($2); }
+  | _SYMB_11 T_Word { $$ = make_BothRedir($2); }
   | _DGT T_Word { $$ = make_AppendRedir($2); }
   | _GT T_Word { $$ = make_OutRedir($2); }
   | _LT T_Word { $$ = make_InRedir($2); }

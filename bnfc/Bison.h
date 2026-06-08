@@ -58,24 +58,27 @@ extern int grammar_debug;
     _BANG = 259,                   /* _BANG  */
     _AMP = 260,                    /* _AMP  */
     _DAMP = 261,                   /* _DAMP  */
-    _LPAREN = 262,                 /* _LPAREN  */
-    _RPAREN = 263,                 /* _RPAREN  */
-    _SEMI = 264,                   /* _SEMI  */
-    _LT = 265,                     /* _LT  */
-    _GT = 266,                     /* _GT  */
-    _DGT = 267,                    /* _DGT  */
-    _KW_elif = 268,                /* _KW_elif  */
-    _KW_else = 269,                /* _KW_else  */
-    _KW_fi = 270,                  /* _KW_fi  */
-    _KW_if = 271,                  /* _KW_if  */
-    _KW_then = 272,                /* _KW_then  */
-    _KW_time = 273,                /* _KW_time  */
-    _LBRACE = 274,                 /* _LBRACE  */
-    _BAR = 275,                    /* _BAR  */
-    _DBAR = 276,                   /* _DBAR  */
-    _RBRACE = 277,                 /* _RBRACE  */
-    T_Assign = 278,                /* T_Assign  */
-    T_Word = 279                   /* T_Word  */
+    _SYMB_11 = 262,                /* _SYMB_11  */
+    _LPAREN = 263,                 /* _LPAREN  */
+    _RPAREN = 264,                 /* _RPAREN  */
+    _SYMB_10 = 265,                /* _SYMB_10  */
+    _SYMB_9 = 266,                 /* _SYMB_9  */
+    _SEMI = 267,                   /* _SEMI  */
+    _LT = 268,                     /* _LT  */
+    _GT = 269,                     /* _GT  */
+    _DGT = 270,                    /* _DGT  */
+    _KW_elif = 271,                /* _KW_elif  */
+    _KW_else = 272,                /* _KW_else  */
+    _KW_fi = 273,                  /* _KW_fi  */
+    _KW_if = 274,                  /* _KW_if  */
+    _KW_then = 275,                /* _KW_then  */
+    _KW_time = 276,                /* _KW_time  */
+    _LBRACE = 277,                 /* _LBRACE  */
+    _BAR = 278,                    /* _BAR  */
+    _DBAR = 279,                   /* _DBAR  */
+    _RBRACE = 280,                 /* _RBRACE  */
+    T_Assign = 281,                /* T_Assign  */
+    T_Word = 282                   /* T_Word  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -102,7 +105,7 @@ union YYSTYPE
   CommandPart commandpart_;
   ListWord listword_;
 
-#line 106 "Bison.h"
+#line 109 "Bison.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

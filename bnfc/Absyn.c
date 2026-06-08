@@ -296,6 +296,51 @@ OptRedir make_NoRedir()
     return tmp;
 }
 
+/********************   ErrAppRedir    ********************/
+
+OptRedir make_ErrAppRedir(Word p1)
+{
+    OptRedir tmp = (OptRedir) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating ErrAppRedir!\n");
+        exit(1);
+    }
+    tmp->kind = is_ErrAppRedir;
+    tmp->u.errappredir_.word_ = p1;
+    return tmp;
+}
+
+/********************   ErrRedir    ********************/
+
+OptRedir make_ErrRedir(Word p1)
+{
+    OptRedir tmp = (OptRedir) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating ErrRedir!\n");
+        exit(1);
+    }
+    tmp->kind = is_ErrRedir;
+    tmp->u.errredir_.word_ = p1;
+    return tmp;
+}
+
+/********************   BothRedir    ********************/
+
+OptRedir make_BothRedir(Word p1)
+{
+    OptRedir tmp = (OptRedir) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating BothRedir!\n");
+        exit(1);
+    }
+    tmp->kind = is_BothRedir;
+    tmp->u.bothredir_.word_ = p1;
+    return tmp;
+}
+
 /********************   AppendRedir    ********************/
 
 OptRedir make_AppendRedir(Word p1)
@@ -585,6 +630,15 @@ OptRedir clone_OptRedir(OptRedir p)
   case is_NoRedir:
     return make_NoRedir ();
 
+  case is_ErrAppRedir:
+    return make_ErrAppRedir (strdup(p->u.errappredir_.word_));
+
+  case is_ErrRedir:
+    return make_ErrRedir (strdup(p->u.errredir_.word_));
+
+  case is_BothRedir:
+    return make_BothRedir (strdup(p->u.bothredir_.word_));
+
   case is_AppendRedir:
     return make_AppendRedir (strdup(p->u.appendredir_.word_));
 
@@ -825,6 +879,18 @@ void free_OptRedir(OptRedir p)
   switch(p->kind)
   {
   case is_NoRedir:
+    break;
+
+  case is_ErrAppRedir:
+    free(p->u.errappredir_.word_);
+    break;
+
+  case is_ErrRedir:
+    free(p->u.errredir_.word_);
+    break;
+
+  case is_BothRedir:
+    free(p->u.bothredir_.word_);
     break;
 
   case is_AppendRedir:

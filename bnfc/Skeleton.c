@@ -167,6 +167,18 @@ void visitOptRedir(OptRedir p)
   case is_NoRedir:
     /* Code for NoRedir Goes Here */
     break;
+  case is_ErrAppRedir:
+    /* Code for ErrAppRedir Goes Here */
+    visitWord(p->u.errappredir_.word_);
+    break;
+  case is_ErrRedir:
+    /* Code for ErrRedir Goes Here */
+    visitWord(p->u.errredir_.word_);
+    break;
+  case is_BothRedir:
+    /* Code for BothRedir Goes Here */
+    visitWord(p->u.bothredir_.word_);
+    break;
   case is_AppendRedir:
     /* Code for AppendRedir Goes Here */
     visitWord(p->u.appendredir_.word_);

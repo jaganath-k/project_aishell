@@ -1,0 +1,285 @@
+{
+  "version": "1.0",
+  "commands": [
+    {
+      "id": "find_large_files",
+      "aliases": [
+        "find large files",
+        "large files",
+        "big files",
+        "biggest files",
+        "largest files on disk",
+        "what is taking disk space"
+      ],
+      "description": "Find the 20 largest files on the system",
+      "command": "find / -xdev -type f -size +10M -ls | sort -k7 -rn | head -20",
+      "category": "filesystem",
+      "requires_arg": false
+    },
+    {
+      "id": "disk_usage",
+      "aliases": [
+        "disk usage",
+        "how much disk",
+        "disk space",
+        "show disk usage",
+        "storage usage",
+        "df",
+        "how full is the disk"
+      ],
+      "description": "Show disk usage summary sorted by size",
+      "command": "du -sh /home /tmp /var /usr | sort -rh | head -20",
+      "category": "filesystem",
+      "requires_arg": false
+    },
+    {
+      "id": "delete_older_than_days",
+      "aliases": [
+        "delete old files",
+        "remove files older than",
+        "clean old files",
+        "delete files older than",
+        "remove old files",
+        "cleanup old files",
+        "purge old files"
+      ],
+      "description": "Delete files older than N days in a given path",
+      "command": "find {path} -type f -mtime +{days} -delete",
+      "category": "filesystem",
+      "requires_arg": true,
+      "args": ["path", "days"]
+    },
+    {
+      "id": "find_by_name",
+      "aliases": [
+        "find file",
+        "search for file",
+        "locate file",
+        "find a file named",
+        "where is file"
+      ],
+      "description": "Find a file by name under the current directory",
+      "command": "find . -type f -name '{name}'",
+      "category": "filesystem",
+      "requires_arg": true,
+      "args": ["name"]
+    },
+    {
+      "id": "list_processes",
+      "aliases": [
+        "list processes",
+        "what is running",
+        "show processes",
+        "running processes",
+        "show all processes",
+        "ps",
+        "process list"
+      ],
+      "description": "Show all running processes with details",
+      "command": "ps -ef",
+      "category": "process",
+      "requires_arg": false
+    },
+    {
+      "id": "top_processes_cpu",
+      "aliases": [
+        "top cpu processes",
+        "cpu usage",
+        "processes by cpu",
+        "which process is using cpu",
+        "high cpu",
+        "cpu consuming processes"
+      ],
+      "description": "Show top 15 processes sorted by CPU usage",
+      "command": "ps -eo pid,ppid,cmd,%cpu,%mem --sort=-%cpu | head -15",
+      "category": "process",
+      "requires_arg": false
+    },
+    {
+      "id": "top_processes_mem",
+      "aliases": [
+        "memory usage",
+        "processes by memory",
+        "which process is using memory",
+        "high memory",
+        "top memory processes",
+        "memory consuming processes",
+        "free memory"
+      ],
+      "description": "Show top 15 processes sorted by memory usage",
+      "command": "ps -eo pid,ppid,cmd,%cpu,%mem --sort=-%mem | head -15",
+      "category": "process",
+      "requires_arg": false
+    },
+    {
+      "id": "kill_process_by_name",
+      "aliases": [
+        "kill process",
+        "stop process",
+        "terminate process",
+        "kill program"
+      ],
+      "description": "Kill all processes with the given name",
+      "command": "pkill -f {name}",
+      "category": "process",
+      "requires_arg": true,
+      "args": ["name"]
+    },
+    {
+      "id": "network_connections",
+      "aliases": [
+        "network connections",
+        "open connections",
+        "who is connected",
+        "show network",
+        "active connections",
+        "listening ports",
+        "open ports"
+      ],
+      "description": "Show active network connections and listening ports",
+      "command": "ss -tulnp",
+      "category": "network",
+      "requires_arg": false
+    },
+    {
+      "id": "ping_host",
+      "aliases": [
+        "ping",
+        "check connection",
+        "is host reachable",
+        "ping host",
+        "test network",
+        "can I reach"
+      ],
+      "description": "Ping a host to check connectivity (4 packets)",
+      "command": "ping -c 4 {host}",
+      "category": "network",
+      "requires_arg": true,
+      "args": ["host"]
+    },
+    {
+      "id": "show_ip_address",
+      "aliases": [
+        "show ip",
+        "my ip address",
+        "what is my ip",
+        "network interfaces",
+        "ip address",
+        "show interfaces"
+      ],
+      "description": "Show all network interface IP addresses",
+      "command": "ip addr show",
+      "category": "network",
+      "requires_arg": false
+    },
+    {
+      "id": "grep_in_files",
+      "aliases": [
+        "search in files",
+        "grep",
+        "find text in files",
+        "search for text",
+        "look for string",
+        "find string in files",
+        "search content"
+      ],
+      "description": "Search recursively for a pattern in files under the current directory",
+      "command": "grep -rn '{pattern}' .",
+      "category": "text_search",
+      "requires_arg": true,
+      "args": ["pattern"]
+    },
+    {
+      "id": "count_lines",
+      "aliases": [
+        "count lines",
+        "line count",
+        "how many lines",
+        "wc",
+        "count words",
+        "word count"
+      ],
+      "description": "Count lines in all C source files in the current directory",
+      "command": "wc -l *.c",
+      "category": "text_search",
+      "requires_arg": false
+    },
+    {
+      "id": "show_file_tail",
+      "aliases": [
+        "show last lines",
+        "tail file",
+        "end of file",
+        "last lines",
+        "recent lines",
+        "view log tail"
+      ],
+      "description": "Show the last 20 lines of a file",
+      "command": "tail -n 20 {file}",
+      "category": "text_search",
+      "requires_arg": true,
+      "args": ["file"]
+    },
+    {
+      "id": "compress_directory",
+      "aliases": [
+        "compress directory",
+        "zip folder",
+        "archive directory",
+        "tar directory",
+        "make archive",
+        "compress folder"
+      ],
+      "description": "Compress a directory into a .tar.gz archive",
+      "command": "tar -czf {name}.tar.gz {path}",
+      "category": "filesystem",
+      "requires_arg": true,
+      "args": ["name", "path"]
+    },
+    {
+      "id": "show_logged_in_users",
+      "aliases": [
+        "who is logged in",
+        "logged in users",
+        "who",
+        "show users",
+        "current users",
+        "active users"
+      ],
+      "description": "Show currently logged-in users",
+      "command": "who",
+      "category": "process",
+      "requires_arg": false
+    },
+    {
+      "id": "show_current_directory",
+      "aliases": [
+        "where am i",
+        "current directory",
+        "current folder",
+        "print working directory",
+        "show path",
+        "pwd"
+      ],
+      "description": "Print the current working directory",
+      "command": "pwd",
+      "category": "filesystem",
+      "requires_arg": false
+    },
+    {
+      "id": "show_date_time",
+      "aliases": [
+        "what time is it",
+        "current time",
+        "current date",
+        "show date",
+        "date and time",
+        "today"
+      ],
+      "description": "Show the current date and time",
+      "command": "date",
+      "category": "process",
+      "requires_arg": false
+    }
+  ]
+}

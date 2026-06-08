@@ -1,19 +1,21 @@
--- MiniShell grammar for BNFC (C backend)  -- Week 7 (final)
+-- MiniShell grammar for BNFC (C backend)  -- Week 9 (step 1)
 --
 -- Base:       commands, pipelines (|), redirection, background (&), semicolons
 -- Extended:   quoted strings (preprocessed), if/elif/else/fi,
 --             AND list (&&), OR list (||), NOT (!)
+-- Week 9:     Word charset widened to include + % , (unblocks -size +10M, %cpu, pid,ppid)
 
 comment "/*" "*/" ;
 comment "//" ;
 
 -- Word: backtick is the space-placeholder for "..." preprocessing
-token Word   ( (letter | digit | ["-._/:*?~$`"])
-               (letter | digit | ["-._/:*?~$`"])* ) ;
+-- + % , added so ps -eo pid,%cpu,%mem and find -size +10M parse correctly
+token Word   ( (letter | digit | ["-._/:*?~$`+%,"])
+               (letter | digit | ["-._/:*?~$`+%,"])* ) ;
 
 -- Assign: NAME=value
 token Assign ( letter (letter | digit | '_')* '='
-               (letter | digit | ["-._/:*?~$`"])* ) ;
+               (letter | digit | ["-._/:*?~$`+%,"])* ) ;
 
 entrypoints Input ;
 
@@ -62,13 +64,16 @@ Group.    NegCmd ::= "{" [Job] "}" ;
 -------------------------------------------------------------------
 MkCmdLine.   CommandLine ::= Pipeline OptRedir ;
 
--- Redirection (">>" before ">" so longer token matches first)
+-- Redirection (longer tokens before shorter so flex prefers them)
 NoRedir.     OptRedir    ::= ;
-AppendRedir. OptRedir    ::= ">>" Word ;
-OutRedir.    OptRedir    ::= ">"  Word ;
-InRedir.     OptRedir    ::= "<"  Word ;
-InOutRedir.  OptRedir    ::= "<"  Word ">" Word ;
-OutInRedir.  OptRedir    ::= ">"  Word "<" Word ;
+ErrAppRedir. OptRedir    ::= "2>>" Word ;
+ErrRedir.    OptRedir    ::= "2>"  Word ;
+BothRedir.   OptRedir    ::= "&>"  Word ;
+AppendRedir. OptRedir    ::= ">>"  Word ;
+OutRedir.    OptRedir    ::= ">"   Word ;
+InRedir.     OptRedir    ::= "<"   Word ;
+InOutRedir.  OptRedir    ::= "<"   Word ">" Word ;
+OutInRedir.  OptRedir    ::= ">"   Word "<" Word ;
 
 -------------------------------------------------------------------
 -- Pipeline

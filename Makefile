@@ -1,6 +1,19 @@
 CC      = gcc
-CFLAGS  = -Wall -Wextra -std=c11 -pthread
+CFLAGS  = -Wall -Wextra -g -std=c11 -pthread -D_POSIX_C_SOURCE=200809L
 LDFLAGS = -largtable3 -pthread
+
+# Auto-detect libcurl dev headers — sets -DHAVE_CURL and -lcurl when available.
+# Install headers with:  sudo apt install libcurl4-openssl-dev
+CURL_AVAIL := $(shell printf '\043include <curl/curl.h>\nint x;\n' | \
+                  $(CC) -x c - -fsyntax-only 2>/dev/null && echo yes)
+ifeq ($(CURL_AVAIL),yes)
+  CFLAGS  += -DHAVE_CURL
+  LDFLAGS += -lcurl
+  $(info [Makefile] libcurl detected — building with Claude API support)
+else
+  $(info [Makefile] libcurl headers not found — Claude API stub mode)
+  $(info [Makefile]   Install: sudo apt install libcurl4-openssl-dev)
+endif
 
 # Relaxed flags for BNFC-generated code — flex/bison output triggers
 # sign-conversion and unused-parameter warnings that are not our code.
@@ -8,7 +21,7 @@ CFLAGS_GEN = -g -std=c11 \
              -Wno-unused-parameter -Wno-unused-function \
              -Wno-sign-conversion  -Wno-implicit-function-declaration
 
-# All command sources — same list as week6
+# All command sources — week8 adds cmd_registry + cJSON
 SRCS = aishell_main.c \
        cmd_ls.c cmd_cat.c cmd_stat.c cmd_head.c cmd_tail.c \
        cmd_cp.c cmd_mv.c cmd_rm.c cmd_mkdir.c cmd_rmdir.c cmd_touch.c \
@@ -18,8 +31,9 @@ SRCS = aishell_main.c \
        cmd_edit_replace_line.c cmd_edit_insert_line.c \
        cmd_edit_delete_line.c cmd_edit_replace.c \
        edit_utils.c \
-       cmd_wc.c cmd_sort.c cmd_date.c cmd_find.c cmd_edit_show.c \
-       cmd_help_json.c registry.c
+       cmd_wc.c cmd_sort.c cmd_uniq.c cmd_cut.c cmd_tr.c cmd_date.c cmd_find.c cmd_edit_show.c \
+       cmd_help_json.c registry.c \
+       cmd_registry.c cJSON.c mcp_client.c aishell_client.c aishell_log.c
 
 # BNFC-generated object files (built in bnfc/ after running bnfc-gen)
 BNFC_DIR  = bnfc
@@ -29,7 +43,7 @@ BNFC_OBJS = $(BNFC_DIR)/Absyn.o  \
             $(BNFC_DIR)/Parser.o \
             $(BNFC_DIR)/Printer.o
 
-.PHONY: all clean bnfc-gen bnfc-test bnfc-clean
+.PHONY: all clean bnfc-gen bnfc-test bnfc-clean run log test
 
 # ── default: build ./aishell with BNFC parser (week7) ────────────────────────
 # On the week7 branch ./aishell IS the BNFC-powered shell.
@@ -85,3 +99,13 @@ clean:
 bnfc-clean:
 	rm -f $(BNFC_OBJS)
 	$(MAKE) -C $(BNFC_DIR) clean
+
+# ── convenience targets ───────────────────────────────────────────────────────
+run: aishell
+	./aishell
+
+log:
+	@tail -20 aishell_calls.log 2>/dev/null || echo "(no aishell_calls.log yet)"
+
+test: aishell
+	bash test_week8.sh

@@ -341,6 +341,27 @@ void ppOptRedir(OptRedir p, int _i_)
     if (_i_ > 0) renderC(_R_PAREN);
     break;
 
+  case is_ErrAppRedir:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("2>>");
+    ppIdent(p->u.errappredir_.word_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_ErrRedir:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("2>");
+    ppIdent(p->u.errredir_.word_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_BothRedir:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("&>");
+    ppIdent(p->u.bothredir_.word_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
   case is_AppendRedir:
     if (_i_ > 0) renderC(_L_PAREN);
     renderS(">>");
@@ -793,6 +814,42 @@ void shOptRedir(OptRedir p)
 
 
 
+
+    break;
+  case is_ErrAppRedir:
+    bufAppendC('(');
+
+    bufAppendS("ErrAppRedir");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.errappredir_.word_);
+
+    bufAppendC(')');
+
+    break;
+  case is_ErrRedir:
+    bufAppendC('(');
+
+    bufAppendS("ErrRedir");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.errredir_.word_);
+
+    bufAppendC(')');
+
+    break;
+  case is_BothRedir:
+    bufAppendC('(');
+
+    bufAppendS("BothRedir");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.bothredir_.word_);
+
+    bufAppendC(')');
 
     break;
   case is_AppendRedir:
