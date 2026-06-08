@@ -1,37 +1,82 @@
-# week7 — Grammar-Based Parsing (BNF/BNFC)
+# week8 — MCP/AI Integration + Grammar Improvements
 
-A modular, BusyBox-style shell implemented in C. All 32 commands compile into a **single `aishell` binary** that runs as an interactive REPL or dispatches subcommands directly.
+A modular, BusyBox-style shell implemented in C. All 35 commands compile into a **single `aishell` binary** that runs as an interactive REPL or dispatches subcommands directly.
 
-Builds on [aishell-week6](https://github.com/jaganath-k/project_aishell), replacing the hand-rolled tokeniser with a formal BNF grammar processed by BNFC. The grammar defines shell syntax precisely; BNFC generates a lexer, LR parser, and typed AST automatically. An AST evaluator bridges the typed tree to the existing Week 5/6 execution layer — pipelines, redirection, job table, pthreads — all unchanged. New language features (`&&`, `||`, `!`, `if/elif/else/fi`, subshell, group, arithmetic, `time`, quoted strings) are added as grammar rules.
+Builds on [week7](https://github.com/jaganath-k/project_aishell) (BNFC grammar pipeline). Week 8 adds a three-tier natural-language `@` command interface backed by a local command registry, an MCP server probe, and an OpenRouter AI fallback. The grammar is extended with stderr redirects (`2>`, `2>>`, `&>`), command substitution (`$(…)`), and a wider token charset. Three new text-processing commands (`uniq`, `cut`, `tr`) bring the command count to 35.
 
 ---
 
 ## Quick Start
 
 ```sh
-# Install BNFC toolchain (one-time)
-sudo apt-get install -y bnfc flex bison
+# Install dependencies (one-time)
+sudo apt-get install -y bnfc flex bison libcurl4-openssl-dev
 
 # Generate parser/lexer from Grammar.cf (run once, or after Grammar.cf changes)
 make bnfc-gen
 
-# Build ./aishell with BNFC parser
+# Build ./aishell
 make
 
 # Run the interactive shell
 ./aishell
 
-# Subcommand mode (no separate binaries needed)
-./aishell ls .
-./aishell wc test.txt
-
-# Emit full command catalog as JSON
-./aishell --commands-json
+# Set OpenRouter API key for AI fallback (get free key at https://openrouter.ai)
+export OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
 ---
 
-## Commands (32)
+## AI / Natural Language Commands (`@`)
+
+Type `@ <natural language query>` to let the shell find and run the right command.
+
+```sh
+@ check system uptime
+@ list open network connections
+@ delete files older than 7 days in /tmp
+@ show top cpu processes
+@ list   # show all registry entries
+@ log    # tail the last 20 calls from aishell_calls.log
+```
+
+### Three-Tier Lookup Chain
+
+```
+user types "@ <query>"
+       │
+       ▼
+[1] commands.json registry   — 18 entries, keyword match, zero latency
+       │ miss
+       ▼
+[2] MCP server (localhost:9000, TCP)   — sub-ms probe
+       │ unavailable
+       ▼
+[3] OpenRouter AI (HTTPS, libcurl)    — multi-model free → paid fallback
+       │
+       ▼
+  show command + explanation → confirm → execute
+```
+
+All queries and outcomes are appended to `aishell_calls.log` (thread-safe).
+
+### OpenRouter Model Chain
+
+| Model | Tier | Notes |
+|-------|------|-------|
+| `google/gemma-4-31b-it:free` | Free | 31B — best free quality |
+| `meta-llama/llama-3.3-70b-instruct:free` | Free | 70B — high quality |
+| `meta-llama/llama-3.2-3b-instruct:free` | Free | Small, fast |
+| `google/gemma-3-4b-it` | Paid | $0.04/1M — cheapest paid |
+| `google/gemini-2.5-flash-lite` | Paid | $0.10/1M — reliable fallback |
+
+```sh
+export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
+```
+
+---
+
+## Commands (35)
 
 ### File & Directory (11)
 
@@ -56,12 +101,15 @@ make
 | `rg`    | `-i` case, `-F` fixed, `-l` files-only, `-r` recursive, `--json` | Search files with POSIX extended regex |
 | `find`  | `-n PATTERN` glob, `-t f/d/l` type, `--maxdepth N` | Recursively search directory tree |
 
-### Text Processing (3)
+### Text Processing (6)
 
 | Command | Key Flags | Summary |
 |---------|-----------|---------|
 | `wc`    | `-l` lines, `-w` words, `-c` bytes | Count lines, words, and bytes |
 | `sort`  | `-r` reverse, `-n` numeric, `-u` unique, `-k N` field | Sort lines of text |
+| `uniq`  | `-c` count, `-d` repeated, `-u` unique, `-i` ignore-case | Filter adjacent duplicate lines |
+| `cut`   | `-d DELIM`, `-f LIST` fields, `-c LIST` chars | Remove sections from each line |
+| `tr`    | `-d` delete, `-s` squeeze, `-c` complement | Translate or delete characters |
 | `date`  | `-u` UTC, `-f FMT` strftime | Print current date and time |
 
 ### Process Management (4)
@@ -113,8 +161,6 @@ make
 
 `pkg` is a standalone binary managing the full lifecycle of aishell packages.
 
-### pkg commands
-
 | Command | Description |
 |---------|-------------|
 | `pkg build <src-dir> <out.tar.gz>` | Package source into a distributable archive |
@@ -124,58 +170,29 @@ make
 | `pkg check-update <name>` | Query registry for newer version |
 | `pkg upgrade <name>` | Download and install latest version |
 
-### Build pkg
-
-```sh
-gcc -Wall -Wextra -std=c11 -o pkg pkg.c
-```
-
----
-
-## Registry Server
-
-A minimal Node.js + Express HTTP server acting as the package source of truth.
-
-```sh
-cd registry && npm install && node server.js
-# → http://localhost:3000
-```
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /packages` | List all available packages |
-| `GET /packages/:name` | Get metadata for a single package |
-| `GET /files/<archive>.tar.gz` | Download a package archive |
-
 ---
 
 ## Build
 
-**Requirements:** `gcc`, `make`, `argtable3`, `bnfc`, `flex`, `bison`
+**Requirements:** `gcc`, `make`, `argtable3`, `bnfc`, `flex`, `bison`, `libcurl` (optional — enables AI fallback)
 
-**Install argtable3** (one-time):
 ```sh
+# Install argtable3 (one-time)
 git clone https://github.com/argtable/argtable3.git
 cmake -B argtable3/build -DCMAKE_BUILD_TYPE=Release argtable3
 cmake --build argtable3/build
 sudo cmake --install argtable3/build && sudo ldconfig
-```
 
-**Install BNFC toolchain** (one-time):
-```sh
-sudo apt-get install -y bnfc flex bison
-```
+# Install BNFC toolchain + libcurl (one-time)
+sudo apt-get install -y bnfc flex bison libcurl4-openssl-dev
 
-**Build:**
-```sh
-make bnfc-gen   # generate Lexer.c + Parser.c from Grammar.cf
-make            # produces ./aishell  (-DUSE_BNFC -Ibnfc)
+# Build
+make bnfc-gen   # generate Lexer.c + Parser.c from Grammar.cf (once, or after Grammar.cf changes)
+make            # produces ./aishell
 make clean      # remove build artifacts
-make bnfc-test  # build TestGrammar AST printer (grammar debugging)
-make bnfc-clean # remove BNFC generated object files
 ```
 
-Build flags: `-Wall -Wextra -std=c11 -pthread -DUSE_BNFC -Ibnfc`, linked with `-largtable3 -pthread`.
+The Makefile auto-detects libcurl. Without it the shell builds and runs normally — the AI fallback prints an install hint instead of calling OpenRouter.
 
 ---
 
@@ -188,39 +205,61 @@ Build flags: `-Wall -Wextra -std=c11 -pthread -DUSE_BNFC -Ibnfc`, linked with `-
 | Dynamic prompt | Shows current directory `[/tmp] jshell%`; change with `prompt STRING` |
 | Pipelines | `cmd1 \| cmd2 \| cmd3` — built-in and external stages mixed freely |
 | Background jobs | `cmd &` — processes return `[N] PID`; built-ins return `[N] (thread)` |
-| Output redirect | `cmd > file` (truncate) or `cmd >> file` (append) |
+| Output redirect | `cmd > file` (truncate), `cmd >> file` (append) |
+| Stderr redirect | `cmd 2> file`, `cmd 2>> file`, `cmd &> file` (stdout+stderr) |
 | Input redirect | `cmd < file` |
+| Command substitution | `echo $(date)`, `ls $(pwd)` — output replaces the expression |
 | Glob wildcards | `*.c`, `*.h`, `?` expanded via `glob(GLOB_NOCHECK)` |
 | Quoted strings | `"hello world"` — single argument with space; `$var` expanded inside |
 | AND list | `cmd1 && cmd2` — run cmd2 only if cmd1 succeeds |
 | OR list | `cmd1 \|\| cmd2` — run cmd2 only if cmd1 fails |
 | Negation | `! cmd` / `! pipeline` — invert exit code |
-| Subshell | `( cmd1 ; cmd2 )` — isolated child process; changes don't affect parent |
-| Group command | `{ cmd1 ; cmd2 }` — current process; changes propagate to parent |
+| Subshell | `( cmd1 ; cmd2 )` — isolated child process |
+| Group command | `{ cmd1 ; cmd2 }` — current process; changes propagate |
 | if / then / elif / else / fi | Full conditional with unlimited `elif` branches |
 | Arithmetic expansion | `$((expr))` — `+` `-` `*` `/` `%`, parentheses, variables |
-| Pipeline negation | `! cmd1 \| cmd2` — negates the full pipeline exit code |
-| time command | `time cmd` / `time pipeline` — prints real elapsed time to stderr |
 | Variable assignment | `x=value` — stored in shell variable store |
 | Variable expansion | `$x`, `$?`, `$$`, `${var}` — with `getenv()` fallback |
-| @ NL handler | `@query` — sends to `mysh_llm`, shows suggestion, runs on confirmation |
-| `--commands-json` | Emits all 32 commands as JSON for AI/tooling integration |
+| @ NL interface | `@ query` — 3-tier lookup: registry → MCP → OpenRouter AI |
+| `--commands-json` | Emits all 35 commands as JSON for AI/tooling integration |
 
 ---
 
-## Grammar Model (week7)
+## Grammar (week8 additions on top of week7)
 
-| Aspect | Detail |
-|--------|--------|
-| Grammar file | `bnfc/Grammar.cf` — 30 rules; single source of truth for shell syntax |
-| Toolchain | BNFC 2.9.5 → Flex + Bison → `Lexer.c` + `Parser.c` + `Absyn.h` |
-| Parser type | LR parser generated by Bison; rejects invalid syntax with position info |
-| Entry point | `psInput(const char*)` — parses one REPL line into a typed AST |
-| Pre-processing | `preprocess_arith()` → `preprocess_quotes()` before the parser |
-| Evaluator | `eval_input → eval_job → eval_condition → eval_negcmd → eval_cmdline` |
-| Execution | Delegates to Week 5/6: `bnfc_run_cmd()`, `run_pipeline()`, unchanged |
-| Variable store | 64-slot `var_store[]`; `$?`, `$$`, `${var}`; falls back to `getenv()` |
-| Arithmetic | Recursive descent: `$((expr))` — `+`, `-`, `*`, `/`, `%`, parens, variables |
+### New in week8
+
+| Feature | Grammar / Code |
+|---------|---------------|
+| Wider `Word` charset | `+`, `%`, `,` added — enables `ps -eo %cpu`, `find -size +10M` |
+| `2> FILE` | `ErrRedir` production |
+| `2>> FILE` | `ErrAppRedir` production |
+| `&> FILE` | `BothRedir` production — redirects stdout+stderr |
+| `$(cmd)` | `preprocess_cmd_subst()` — runs before BNFC parse, uses `popen()` |
+
+### Full `OptRedir` productions
+
+```
+ErrAppRedir  ::= "2>>" Word
+ErrRedir     ::= "2>"  Word
+BothRedir    ::= "&>"  Word
+AppendRedir  ::= ">>"  Word
+OutRedir     ::= ">"   Word
+InRedir      ::= "<"   Word
+InOutRedir   ::= "<"   Word ">" Word
+OutInRedir   ::= ">"   Word "<" Word
+```
+
+### BNFC Grammar Pipeline (week8)
+
+```
+getline (EINTR-safe)
+  → preprocess_arith()      $((expr)) → numeric result
+  → preprocess_cmd_subst()  $(cmd)    → popen output (week8)
+  → preprocess_quotes()     "hello world" → hello`world
+  → psInput(line)           BNFC LR parser → typed AST
+  → eval_input()
+```
 
 ### Grammar Hierarchy
 
@@ -233,59 +272,54 @@ Condition → NegCmd | NegCmd "&&" Condition | NegCmd "||" Condition
 NegCmd    → CommandLine | "!" NegCmd | "time" NegCmd
           | "(" [Job] ")" | "{" [Job] "}"
 CommandLine → Pipeline OptRedir
-OptRedir  → (empty) | ">>" Word | ">" Word | "<" Word
-          | "<" Word ">" Word | ">" Word "<" Word
+OptRedir  → (empty) | "2>>" Word | "2>" Word | "&>" Word
+          | ">>" Word | ">" Word | "<" Word
 Pipeline  → CommandPart | CommandPart "|" Pipeline
 CommandPart → Word [Word]
 ```
 
 ---
 
-## Thread Model (week6)
-
-| Aspect | Detail |
-|--------|--------|
-| Dispatch | Every built-in runs in a `pthread` — foreground joined immediately; background left running |
-| Job table | Tracks both `JOB_TYPE_PROCESS` (fork) and `JOB_TYPE_THREAD` (pthread) |
-| Background threads | Kept joinable; `lsh_exit()` cancels and joins all before exit |
-| Cancellation | `PTHREAD_CANCEL_DEFERRED` — safe at syscall points |
-| Cleanup handler | `bg_builtin_cleanup` via `pthread_cleanup_push` — runs on cancel or exit |
-| `pipeline_io_mutex` | Serialises `dup2 → run → restore` for built-in pipeline stages |
-| `g_cwd` + `cwd_mutex` | Mutex-protected cwd buffer updated after every `cd` |
-| Clean exit | Cancel + join threads → reap processes → destroy mutexes → `exit()` |
-
----
-
 ## Usage Examples
 
 ```sh
+# AI natural language (week8)
+@ check system uptime
+@ list open network connections
+@ delete files older than 7 days in /tmp
+@ show top cpu processes
+@ count lines in all c files
+
+# New text processing commands (week8)
+printf "apple\napple\nbanana\n" | ./aishell uniq
+printf "apple\napple\nbanana\n" | ./aishell uniq -c
+echo "one:two:three" | ./aishell cut -d: -f2
+echo "abcdef" | ./aishell cut -c2-4
+echo "Hello World" | ./aishell tr 'a-z' 'A-Z'
+echo "Hello 123" | ./aishell tr -d '0-9'
+echo "hello   world" | ./aishell tr -s ' '
+
+# New redirects (week8)
+make 2> build_errors.txt          # stderr to file
+make &> build_all.log             # stdout+stderr to file
+make 2>> build_errors.txt         # append stderr
+
+# Command substitution (week8)
+echo $(date)
+ls $(pwd)
+echo $(uname -r)
+
 # Grammar features (week7) — inside ./aishell
-echo "hello world"                          # quoted string
-x=hello ; echo $x                           # variable assignment + expansion
-echo $((2+3*4))                             # arithmetic → 14
-sq=$((7*7)) ; echo $sq                      # assign from arithmetic
-ls && echo ok                               # AND list
-ls NOTEXIST || echo fallback               # OR list
-! /usr/bin/false && echo negated            # NOT
-if ls *.c then echo found fi               # if/then/fi
-if /usr/bin/false then echo a elif echo ok then echo b else echo c fi
-( cd /tmp ; pwd )                           # subshell — parent dir unchanged
-{ cd /tmp ; pwd }                           # group — parent dir changes
-time ls | /usr/bin/wc -l                   # time pipeline
-@list all c files                           # @ natural language query
-./aishell --commands-json                   # 32-command JSON catalog
-
-# Thread integration (week6) — inside ./aishell
-help &                                      # background built-in thread
-help | /usr/bin/grep exit                  # thread → fork pipeline
-cd /tmp                                     # prompt updates to [/tmp] jshell%
-
-# Process management (week5) — inside ./aishell
-/usr/bin/sleep 5 &                          # background process
-ls | /usr/bin/sort | /usr/bin/head -5       # multi-stage pipeline
-echo hello > /tmp/out.txt                   # output redirect
-wc -l < /tmp/out.txt                        # input redirect
-ls *.c | wc -l                              # glob + pipe
+echo "hello world"
+x=hello ; echo $x
+echo $((2+3*4))
+ls && echo ok
+ls NOTEXIST || echo fallback
+! /usr/bin/false && echo negated
+if ls *.c then echo found fi
+( cd /tmp ; pwd )
+time ls | /usr/bin/wc -l
+./aishell --commands-json
 ```
 
 ---
@@ -299,86 +333,30 @@ Every command follows the **APPANATOMY** pattern:
 - **Registry** (`registry.c`) — flat array of up to 64 `cmd_spec_t*`; dispatch via `find_command(name)->run(argc, argv)`
 - **`cmd_help_json.c`** — walks live `arg_hdr_t` entries to emit JSON; always in sync with the argtable
 
-### Dispatch Modes
-
-```
-1. BusyBox    — invoked as a symlink named after a command → basename dispatch
-2. Subcommand — ./aishell <cmd> [args...]  → argv shifted, cmd->run() called
-3. --commands-json — emit full command catalog as JSON and exit
-4. REPL       — ./aishell  (no args) → interactive BNFC-powered shell
-```
-
-### BNFC Grammar Pipeline (week7)
-
-```
-getline (EINTR-safe)
-  → preprocess_arith()   $((expr)) → numeric result
-  → preprocess_quotes()  "hello world" → hello`world
-  → psInput(line)        BNFC LR parser → typed AST
-  → eval_input()
-      eval_job()         FG / BG / Assign / IfStmt
-      eval_condition()   && / || short-circuit
-      eval_negcmd()      ! / time / ( subshell ) / { group }
-      eval_cmdline()     cmd_t → bnfc_run_cmd / run_pipeline
-```
-
-### Process Management (week5)
-
-```
-execute_command()
-  ├── pipe_next? → run_pipeline()
-  │     ├── SIGCHLD blocked during setup
-  │     ├── fflush(NULL) before first fork
-  │     ├── each child: SIG_DFL → dup2 → exec
-  │     └── parent: close pipes → waitpid loop
-  └── single command → lsh_execute()
-        ├── builtin  → run in parent
-        ├── registry → dup/restore fds + run
-        └── external → lsh_launch(): fork → execvp
-```
-
-### Thread Dispatch (week6)
-
-```
-lsh_execute()
-  ├── background built-in?
-  │     ├── cmd_dup()                  deep-copy argv (race-free)
-  │     ├── jobs_reserve_thread_slot   pre-reserve job slot
-  │     ├── pthread_create(bg_builtin_thread_fn)
-  │     │     ├── pthread_cleanup_push(bg_builtin_cleanup)
-  │     │     ├── run built-in
-  │     │     └── pthread_cleanup_pop → mark Done, free
-  │     └── jobs_set_thread_tid
-  └── foreground built-in?
-        ├── pthread_create(builtin_thread_entry)
-        └── pthread_join
-
-lsh_exit()
-  ├── collect tids → pthread_cancel → pthread_join
-  ├── waitpid(-1, WNOHANG) loop
-  ├── pthread_mutex_destroy × 3
-  └── exit(code)
-```
-
 ### Source Layout
 
 ```
-aishell_main.c           — REPL + dispatch + BNFC evaluator (#ifdef USE_BNFC)
-bnfc/Grammar.cf          — BNF grammar source (30 rules) — only file you author
-bnfc/                    — BNFC-generated files (excluded from git via .gitignore)
-mysh_llm                 — Python AI helper for @ natural language queries
-cmd_<name>.c             — one file per command (32 total)
+aishell_main.c           — REPL, dispatch, BNFC evaluator, @ handler
+bnfc/Grammar.cf          — BNF grammar source (single file you author)
+bnfc/                    — BNFC-generated files
+commands.json            — 18-entry NL command registry (week8)
+cmd_registry.c/h         — cJSON-based registry loader + keyword matcher (week8)
+mcp_client.c/h           — non-blocking TCP client to MCP server (week8)
+aishell_client.c/h       — OpenRouter AI client via libcurl (week8)
+aishell_log.c/h          — thread-safe append logger (week8)
+cJSON.c/h                — embedded JSON parser
+cmd_<name>.c             — one file per command (35 total)
 edit_utils.c/h           — shared file I/O for edit-* commands
 cmd_spec.h               — cmd_spec_t definition + registry API
 cmd_help_json.c/h        — shared --help-json implementation
 registry.c               — register_command / find_command / for_each_command
-pkg.c                    — standalone package manager (6 subcommands)
-pkg.json                 — aishell package descriptor
+pkg.c                    — standalone package manager
 registry/                — Node.js + Express HTTP registry server
-docs/                    — pre-generated --help-json snapshots (32 JSON files)
+docs/                    — pre-generated --help-json snapshots
 test_week5.sh            — 25 checks — process management
 test_week6.sh            — 23 checks — pthread integration
 test_week7.sh            — 26 checks — BNFC grammar features
+test_week8.sh            — 21 checks — AI/registry/MCP integration
 ```
 
 ---
@@ -389,6 +367,7 @@ test_week7.sh            — 26 checks — BNFC grammar features
 bash test_week5.sh   # 25 / 25 — fork/exec, pipes, redirects, signals
 bash test_week6.sh   # 23 / 23 — pthreads, job table, clean shutdown
 bash test_week7.sh   # 26 / 26 — grammar, variables, conditions, arithmetic
+bash test_week8.sh   # 21 checks — 14 pass offline (7 require live API key / MCP)
 ```
 
 ---
@@ -398,8 +377,9 @@ bash test_week7.sh   # 26 / 26 — grammar, variables, conditions, arithmetic
 Every command supports `--help-json` and `--help`:
 
 ```sh
-./aishell wc --help-json
-./aishell sort --help
+./aishell uniq --help-json
+./aishell cut  --help-json
+./aishell tr   --help-json
 ./aishell --commands-json | python3 -m json.tool
 ```
 
@@ -407,8 +387,9 @@ Pre-generated snapshots live in `docs/`. Regenerate all:
 
 ```sh
 for cmd in ls cat stat head tail cp mv rm mkdir rmdir touch rg ps kill wait \
-           jobs cd pwd echo env export unset type wc sort date find edit-show \
-           edit-replace-line edit-insert-line edit-delete-line edit-replace; do
+           jobs cd pwd echo env export unset type wc sort uniq cut tr date \
+           find edit-show edit-replace-line edit-insert-line edit-delete-line \
+           edit-replace; do
     ./aishell $cmd --help-json > docs/${cmd}.json
 done
 ```
