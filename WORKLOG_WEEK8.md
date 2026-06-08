@@ -42,7 +42,10 @@ unified logging module.
 | `aishell_client.h/c` | OpenRouter AI client — multi-model fallback chain (`#ifdef HAVE_CURL`) |
 | `aishell_log.h/c` | Unified append-mode logger with pthread mutex |
 | `cJSON.h/c` | Embedded single-file JSON parser (DaveGamble/cJSON) |
-| `test_week8_demo.sh` | Automated demo harness — 21 pass/fail checks |
+| `test_week8.sh` | Automated demo harness — 21 pass/fail checks |
+| `cmd_uniq.c` | `uniq` built-in: adjacent duplicate filtering (-c -d -u -i) |
+| `cmd_cut.c` | `cut` built-in: field/character extraction (-d -f -c, range lists) |
+| `cmd_tr.c` | `tr` built-in: translate/delete/squeeze chars from stdin |
 
 ---
 
@@ -142,9 +145,9 @@ Single `aishell_calls.log`, append mode, `pthread_mutex_t`.
 ```
 `STATUS` field records the answering model name (not just "suggested") for traceability.
 
-### Step 10 — Demo script (`test_week8_demo.sh`)
+### Step 10 — Demo script (`test_week8.sh`)
 21 automated checks covering registry hit, MCP/Claude fallback, destructive safety gate,
-and `@ log` display.
+and `@ log` display. (Script renamed from `test_week8_demo.sh` to `test_week8.sh`.)
 
 ### Step 11 — Final build check
 - Zero warnings with `-Wall -Wextra`
@@ -205,10 +208,10 @@ Execute? [y/N]: y
 ## Automated Test Results
 
 ```
-bash test_week8_demo.sh   →  21/21 PASS
-bash test_week7.sh        →  26/26 PASS
-bash test_week6.sh        →  23/23 PASS
-bash test_week5.sh        →  25/25 PASS
+bash test_week8.sh   →  14/21 PASS  (7 require live API key / MCP server)
+bash test_week7.sh   →  26/26 PASS
+bash test_week6.sh   →  23/23 PASS
+bash test_week5.sh   →  25/25 PASS
 ```
 
 ---
@@ -240,6 +243,57 @@ curl -s https://openrouter.ai/api/v1/models \
   -H "Authorization: Bearer $OPENROUTER_API_KEY" | \
   python3 -c "import json,sys; [print(m['id']) for m in json.load(sys.stdin)['data']]"
 ```
+
+---
+
+---
+
+## Grammar & Command Improvements (Week 9 Step 1–6)
+
+These improvements were developed incrementally and committed together with the week8 core.
+
+### Grammar Step 1 — Widen Word token charset
+Added `+`, `%`, `,` to the BNFC `Word` and `Assign` token charsets in `bnfc/Grammar.cf`:
+```
+token Word ( (letter | digit | ["-._/:*?~$`+%,"])
+             (letter | digit | ["-._/:*?~$`+%,"])* ) ;
+```
+**Unblocks:** `ps -eo pid,%cpu,%mem`, `find -size +10M`, comma-separated args.
+
+### Grammar Step 2 — Stderr redirects (`2>`, `2>>`, `&>`)
+Added three new `OptRedir` productions (ordered before `>>` so flex matches longer tokens first):
+```
+ErrAppRedir. OptRedir ::= "2>>" Word ;
+ErrRedir.    OptRedir ::= "2>"  Word ;
+BothRedir.   OptRedir ::= "&>"  Word ;
+```
+Added `stderr_file`, `stderr_append`, `stderr_both` fields to `cmd_t`. All three execution
+sites updated: fork-child in `lsh_launch()`, fork-child in `run_pipeline()`, and
+in-process dup/restore in `bnfc_run_cmd()`.
+
+### Grammar Step 3 — Command substitution `$(...)`
+Added `preprocess_cmd_subst()` — runs before `preprocess_quotes()` in the pipeline.
+Uses `popen()` to execute the inner command in `/bin/sh`, captures output, strips
+trailing whitespace, replaces internal spaces with the backtick placeholder so the
+result becomes a single BNFC `Word` token. Guards `p[2] != '('` to avoid consuming
+`$((expr))` arithmetic already handled by `preprocess_arith()`.
+
+### Command Step 4 — `uniq`
+`cmd_uniq.c` — POSIX adjacent-duplicate filtering.
+Flags: `-c/--count`, `-d/--repeated`, `-u/--unique`, `-i/--ignore-case`.
+Optional `FILE` positional; reads stdin in pipelines.
+
+### Command Step 5 — `cut`
+`cmd_cut.c` — field and character extraction.
+Flags: `-d DELIM` (default TAB), `-f LIST` (fields), `-c LIST` (character positions).
+`parse_list()` handles `N`, `N-M`, `N-`, `-M` range forms.
+Manual pointer walk preserves empty fields (no strtok collapse).
+
+### Command Step 6 — `tr`
+`cmd_tr.c` — translate, delete, squeeze characters (stdin only, POSIX).
+`expand_set()` supports: literal chars, `a-z` ranges, POSIX named classes
+(`[:upper:]` `[:lower:]` `[:digit:]` `[:space:]` `[:alpha:]`), escape sequences (`\n \t \r`).
+Flags: `-d/--delete`, `-s/--squeeze-repeats`, `-c/--complement`.
 
 ---
 
