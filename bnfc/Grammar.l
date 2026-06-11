@@ -61,12 +61,20 @@ IDENT [a-zA-Z0-9'_]
 <INITIAL>">"      	 return _GT;
 <INITIAL>"<"      	 return _LT;
 <INITIAL>"|"      	 return _BAR;
+<INITIAL>"break"      	 return _KW_break;
+<INITIAL>"continue"      	 return _KW_continue;
+<INITIAL>"do"      	 return _KW_do;
+<INITIAL>"done"      	 return _KW_done;
 <INITIAL>"elif"      	 return _KW_elif;
 <INITIAL>"else"      	 return _KW_else;
 <INITIAL>"fi"      	 return _KW_fi;
+<INITIAL>"for"      	 return _KW_for;
 <INITIAL>"if"      	 return _KW_if;
+<INITIAL>"in"      	 return _KW_in;
 <INITIAL>"then"      	 return _KW_then;
 <INITIAL>"time"      	 return _KW_time;
+<INITIAL>"until"      	 return _KW_until;
+<INITIAL>"while"      	 return _KW_while;
 
 <INITIAL>"//"[^\n]* /* skip */; /* BNFC: comment "//" */
 <INITIAL>"/*" BEGIN COMMENT;
@@ -74,8 +82,11 @@ IDENT [a-zA-Z0-9'_]
 <COMMENT>.    /* skip */;
 <COMMENT>[\n] /* skip */;
 
-<INITIAL>(\$|\%|\*|\+|\,|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))+    	 yylval->_string = strdup(yytext); return T_Word;
-<INITIAL>{LETTER}(\_|({DIGIT}|{LETTER}))*\=(\$|\%|\*|\+|\,|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))*    	 yylval->_string = strdup(yytext); return T_Assign;
+<INITIAL>\$\(\([^\)]*\)\)    	 yylval->_string = strdup(yytext); return T_ArithExp;
+<INITIAL>\<\([^\)]*\)    	 yylval->_string = strdup(yytext); return T_ProcSubstIn;
+<INITIAL>\>\([^\)]*\)    	 yylval->_string = strdup(yytext); return T_ProcSubstOut;
+<INITIAL>{LETTER}(\_|({DIGIT}|{LETTER}))*\=(\$|\%|\(|\)|\*|\+|\,|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))*    	 yylval->_string = strdup(yytext); return T_Assign;
+<INITIAL>(\$|\%|\*|\+|\,|\-|\.|\/|\:|\=|\?|\[|\]|\_|`|\~|({DIGIT}|{LETTER}))+    	 yylval->_string = strdup(yytext); return T_Word;
 <INITIAL>[ \t\r\n\f]      	 /* ignore white space. */;
 <INITIAL>.      	 return _ERROR_;
 

@@ -56,6 +56,19 @@ ListJob reverseListJob(ListJob l)
   }
   return prev;
 }
+ListArg reverseListArg(ListArg l)
+{
+  ListArg prev = 0;
+  ListArg tmp = 0;
+  while (l)
+  {
+    tmp = l->listarg_;
+    l->listarg_ = prev;
+    prev = l;
+    l = tmp;
+  }
+  return prev;
+}
 ListWord reverseListWord(ListWord l)
 {
   ListWord prev = 0;
@@ -88,6 +101,8 @@ ListWord reverseListWord(ListWord l)
   CommandLine commandline_;
   OptRedir optredir_;
   Pipeline pipeline_;
+  Arg arg_;
+  ListArg listarg_;
   CommandPart commandpart_;
   ListWord listword_;
 }
@@ -105,30 +120,41 @@ extern int yylex(YYSTYPE *lvalp, YYLTYPE *llocp, yyscan_t scanner);
 %}
 
 %token          _ERROR_
-%token          _BANG     /* ! */
-%token          _AMP      /* & */
-%token          _DAMP     /* && */
-%token          _SYMB_11  /* &> */
-%token          _LPAREN   /* ( */
-%token          _RPAREN   /* ) */
-%token          _SYMB_10  /* 2> */
-%token          _SYMB_9   /* 2>> */
-%token          _SEMI     /* ; */
-%token          _LT       /* < */
-%token          _GT       /* > */
-%token          _DGT      /* >> */
-%token          _KW_elif  /* elif */
-%token          _KW_else  /* else */
-%token          _KW_fi    /* fi */
-%token          _KW_if    /* if */
-%token          _KW_then  /* then */
-%token          _KW_time  /* time */
-%token          _LBRACE   /* { */
-%token          _BAR      /* | */
-%token          _DBAR     /* || */
-%token          _RBRACE   /* } */
-%token<_string> T_Assign  /* Assign */
-%token<_string> T_Word    /* Word */
+%token          _BANG           /* ! */
+%token          _AMP            /* & */
+%token          _DAMP           /* && */
+%token          _SYMB_11        /* &> */
+%token          _LPAREN         /* ( */
+%token          _RPAREN         /* ) */
+%token          _SYMB_10        /* 2> */
+%token          _SYMB_9         /* 2>> */
+%token          _SEMI           /* ; */
+%token          _LT             /* < */
+%token          _GT             /* > */
+%token          _DGT            /* >> */
+%token          _KW_break       /* break */
+%token          _KW_continue    /* continue */
+%token          _KW_do          /* do */
+%token          _KW_done        /* done */
+%token          _KW_elif        /* elif */
+%token          _KW_else        /* else */
+%token          _KW_fi          /* fi */
+%token          _KW_for         /* for */
+%token          _KW_if          /* if */
+%token          _KW_in          /* in */
+%token          _KW_then        /* then */
+%token          _KW_time        /* time */
+%token          _KW_until       /* until */
+%token          _KW_while       /* while */
+%token          _LBRACE         /* { */
+%token          _BAR            /* | */
+%token          _DBAR           /* || */
+%token          _RBRACE         /* } */
+%token<_string> T_ArithExp      /* ArithExp */
+%token<_string> T_Assign        /* Assign */
+%token<_string> T_ProcSubstIn   /* ProcSubstIn */
+%token<_string> T_ProcSubstOut  /* ProcSubstOut */
+%token<_string> T_Word          /* Word */
 
 %type <input_> Input
 %type <job_> Job
@@ -139,6 +165,8 @@ extern int yylex(YYSTYPE *lvalp, YYLTYPE *llocp, yyscan_t scanner);
 %type <commandline_> CommandLine
 %type <optredir_> OptRedir
 %type <pipeline_> Pipeline
+%type <arg_> Arg
+%type <listarg_> ListArg
 %type <commandpart_> CommandPart
 %type <listword_> ListWord
 
@@ -152,6 +180,11 @@ Job : Condition { $$ = make_OneJobFG($1); }
   | Condition _AMP { $$ = make_OneJobBG($1); }
   | T_Assign { $$ = make_AssignJob($1); }
   | _KW_if Condition _KW_then ListJob OptElse _KW_fi { $$ = make_IfStmt($2, $4, $5); }
+  | _KW_for T_Word _KW_in ListWord _KW_do ListJob _KW_done { $$ = make_ForStmt($2, $4, $6); }
+  | _KW_while Condition _KW_do ListJob _KW_done { $$ = make_WhileStmt($2, $4); }
+  | _KW_until Condition _KW_do ListJob _KW_done { $$ = make_UntilStmt($2, $4); }
+  | _KW_break { $$ = make_BreakStmt(); }
+  | _KW_continue { $$ = make_ContStmt(); }
 ;
 ListJob : Job { $$ = make_ListJob($1, 0); }
   | Job _SEMI ListJob { $$ = make_ListJob($1, $3); }
@@ -185,7 +218,15 @@ OptRedir : /* empty */ { $$ = make_NoRedir(); }
 Pipeline : CommandPart { $$ = make_Single($1); }
   | CommandPart _BAR Pipeline { $$ = make_Pipe($1, $3); }
 ;
-CommandPart : T_Word ListWord { $$ = make_Cmd($1, $2); }
+Arg : T_Word { $$ = make_WrdArg($1); }
+  | T_ArithExp { $$ = make_ArithArg($1); }
+  | T_ProcSubstIn { $$ = make_PSubstInArg($1); }
+  | T_ProcSubstOut { $$ = make_PSubstOutArg($1); }
+;
+ListArg : /* empty */ { $$ = 0; }
+  | ListArg Arg { $$ = make_ListArg($2, $1); }
+;
+CommandPart : Arg ListArg { $$ = make_Cmd($1, reverseListArg($2)); }
 ;
 ListWord : /* empty */ { $$ = 0; }
   | T_Word ListWord { $$ = make_ListWord($1, $2); }

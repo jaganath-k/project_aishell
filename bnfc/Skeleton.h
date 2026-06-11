@@ -16,10 +16,12 @@ void visitNegCmd(NegCmd p);
 void visitCommandLine(CommandLine p);
 void visitOptRedir(OptRedir p);
 void visitPipeline(Pipeline p);
+void visitArg(Arg p);
+void visitListArg(ListArg p);
 void visitCommandPart(CommandPart p);
 void visitListWord(ListWord p);
 
-void visitWord(Word p);void visitAssign(Assign p);
+void visitArithExp(ArithExp p);void visitProcSubstIn(ProcSubstIn p);void visitProcSubstOut(ProcSubstOut p);void visitAssign(Assign p);void visitWord(Word p);
 void visitIdent(Ident i);
 void visitInteger(Integer i);
 void visitDouble(Double d);

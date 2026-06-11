@@ -4,18 +4,32 @@
 -- Extended:   quoted strings (preprocessed), if/elif/else/fi,
 --             AND list (&&), OR list (||), NOT (!)
 -- Week 9:     Word charset widened to include + % , (unblocks -size +10M, %cpu, pid,ppid)
+-- Step 30:    ArithExp token added for arithmetic expansion $(( expr ))
+-- Step 31:    ProcSubstIn/Out tokens added for process substitution <(...) >(...)
 
 comment "/*" "*/" ;
 comment "//" ;
 
--- Word: backtick is the space-placeholder for "..." preprocessing
--- + % , added so ps -eo pid,%cpu,%mem and find -size +10M parse correctly
-token Word   ( (letter | digit | ["-._/:*?~$`+%,"])
-               (letter | digit | ["-._/:*?~$`+%,"])* ) ;
+-- ArithExp must come BEFORE Assign/Word so $((expr)) is lexed as one token.
+-- char - [")"] matches any character except ")" so spaces inside are allowed.
+token ArithExp ( '$' '(' '(' ( char - [")"] )* ')' ')' ) ;
 
--- Assign: NAME=value
+-- Process substitution: <(cmd) and >(cmd).  Must come before "<" / ">" literals
+-- so that flex longest-match picks these tokens over bare redirection operators.
+token ProcSubstIn  ( '<' '(' ( char - [")"] )* ')' ) ;
+token ProcSubstOut ( '>' '(' ( char - [")"] )* ')' ) ;
+
+-- Assign must come BEFORE Word so it wins for NAME=VALUE when both match.
+-- Value charset extended with ( ) so i=$((i+1)) survives.
 token Assign ( letter (letter | digit | '_')* '='
-               (letter | digit | ["-._/:*?~$`+%,"])* ) ;
+               (letter | digit | ["-._/:*?~$`+%,()"] )* ) ;
+
+-- Word: backtick is the space-placeholder for "..." preprocessing.
+-- = added so --option=value long args (e.g. --color=auto) parse as a single Word.
+-- Assign takes priority over Word for NAME=VALUE (Assign defined first).
+-- '[' and ']' added so  [ -f file ]  dispatches to the "[" built-in.
+token Word   ( (letter | digit | ["-._/:*?~$`+%,="] | '[' | ']')
+               (letter | digit | ["-._/:*?~$`+%,="] | '[' | ']')* ) ;
 
 entrypoints Input ;
 
@@ -29,6 +43,11 @@ OneJobFG.  Job ::= Condition ;
 OneJobBG.  Job ::= Condition "&" ;
 AssignJob. Job ::= Assign ;
 IfStmt.    Job ::= "if" Condition "then" [Job] OptElse "fi" ;
+ForStmt.   Job ::= "for" Word "in" [Word] "do" [Job] "done" ;
+WhileStmt. Job ::= "while" Condition "do" [Job] "done" ;
+UntilStmt. Job ::= "until" Condition "do" [Job] "done" ;
+BreakStmt. Job ::= "break" ;
+ContStmt.  Job ::= "continue" ;
 
 separator nonempty Job ";" ;
 
@@ -82,8 +101,18 @@ Single.      Pipeline    ::= CommandPart ;
 Pipe.        Pipeline    ::= CommandPart "|" Pipeline ;
 
 -------------------------------------------------------------------
+-- Command argument: plain word, arithmetic expansion, or process substitution
+-------------------------------------------------------------------
+WrdArg.      Arg ::= Word ;
+ArithArg.    Arg ::= ArithExp ;
+PSubstInArg.  Arg ::= ProcSubstIn ;
+PSubstOutArg. Arg ::= ProcSubstOut ;
+
+separator Arg " " ;
+
+-------------------------------------------------------------------
 -- Command part: command name + zero or more arguments
 -------------------------------------------------------------------
-Cmd.         CommandPart ::= Word [Word] ;
+Cmd.         CommandPart ::= Arg [Arg] ;
 
 separator Word " " ;

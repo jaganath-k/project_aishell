@@ -83,6 +83,83 @@ Job make_IfStmt(Condition p1, ListJob p2, OptElse p3)
     return tmp;
 }
 
+/********************   ForStmt    ********************/
+
+Job make_ForStmt(Word p1, ListWord p2, ListJob p3)
+{
+    Job tmp = (Job) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating ForStmt!\n");
+        exit(1);
+    }
+    tmp->kind = is_ForStmt;
+    tmp->u.forstmt_.word_ = p1;
+    tmp->u.forstmt_.listword_ = p2;
+    tmp->u.forstmt_.listjob_ = p3;
+    return tmp;
+}
+
+/********************   WhileStmt    ********************/
+
+Job make_WhileStmt(Condition p1, ListJob p2)
+{
+    Job tmp = (Job) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating WhileStmt!\n");
+        exit(1);
+    }
+    tmp->kind = is_WhileStmt;
+    tmp->u.whilestmt_.condition_ = p1;
+    tmp->u.whilestmt_.listjob_ = p2;
+    return tmp;
+}
+
+/********************   UntilStmt    ********************/
+
+Job make_UntilStmt(Condition p1, ListJob p2)
+{
+    Job tmp = (Job) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating UntilStmt!\n");
+        exit(1);
+    }
+    tmp->kind = is_UntilStmt;
+    tmp->u.untilstmt_.condition_ = p1;
+    tmp->u.untilstmt_.listjob_ = p2;
+    return tmp;
+}
+
+/********************   BreakStmt    ********************/
+
+Job make_BreakStmt()
+{
+    Job tmp = (Job) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating BreakStmt!\n");
+        exit(1);
+    }
+    tmp->kind = is_BreakStmt;
+    return tmp;
+}
+
+/********************   ContStmt    ********************/
+
+Job make_ContStmt()
+{
+    Job tmp = (Job) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating ContStmt!\n");
+        exit(1);
+    }
+    tmp->kind = is_ContStmt;
+    return tmp;
+}
+
 /********************   ListJob    ********************/
 
 ListJob make_ListJob(Job p1, ListJob p2)
@@ -449,9 +526,84 @@ Pipeline make_Pipe(CommandPart p1, Pipeline p2)
     return tmp;
 }
 
+/********************   WrdArg    ********************/
+
+Arg make_WrdArg(Word p1)
+{
+    Arg tmp = (Arg) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating WrdArg!\n");
+        exit(1);
+    }
+    tmp->kind = is_WrdArg;
+    tmp->u.wrdarg_.word_ = p1;
+    return tmp;
+}
+
+/********************   ArithArg    ********************/
+
+Arg make_ArithArg(ArithExp p1)
+{
+    Arg tmp = (Arg) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating ArithArg!\n");
+        exit(1);
+    }
+    tmp->kind = is_ArithArg;
+    tmp->u.aritharg_.arithexp_ = p1;
+    return tmp;
+}
+
+/********************   PSubstInArg    ********************/
+
+Arg make_PSubstInArg(ProcSubstIn p1)
+{
+    Arg tmp = (Arg) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating PSubstInArg!\n");
+        exit(1);
+    }
+    tmp->kind = is_PSubstInArg;
+    tmp->u.psubstinarg_.procsubstin_ = p1;
+    return tmp;
+}
+
+/********************   PSubstOutArg    ********************/
+
+Arg make_PSubstOutArg(ProcSubstOut p1)
+{
+    Arg tmp = (Arg) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating PSubstOutArg!\n");
+        exit(1);
+    }
+    tmp->kind = is_PSubstOutArg;
+    tmp->u.psubstoutarg_.procsubstout_ = p1;
+    return tmp;
+}
+
+/********************   ListArg    ********************/
+
+ListArg make_ListArg(Arg p1, ListArg p2)
+{
+    ListArg tmp = (ListArg) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating ListArg!\n");
+        exit(1);
+    }
+    tmp->arg_ = p1;
+    tmp->listarg_ = p2;
+    return tmp;
+}
+
 /********************   Cmd    ********************/
 
-CommandPart make_Cmd(Word p1, ListWord p2)
+CommandPart make_Cmd(Arg p1, ListArg p2)
 {
     CommandPart tmp = (CommandPart) malloc(sizeof(*tmp));
     if (!tmp)
@@ -460,8 +612,8 @@ CommandPart make_Cmd(Word p1, ListWord p2)
         exit(1);
     }
     tmp->kind = is_Cmd;
-    tmp->u.cmd_.word_ = p1;
-    tmp->u.cmd_.listword_ = p2;
+    tmp->u.cmd_.arg_ = p1;
+    tmp->u.cmd_.listarg_ = p2;
     return tmp;
 }
 
@@ -514,6 +666,31 @@ Job clone_Job(Job p)
       , clone_ListJob(p->u.ifstmt_.listjob_)
       , clone_OptElse(p->u.ifstmt_.optelse_)
       );
+
+  case is_ForStmt:
+    return make_ForStmt
+      ( strdup(p->u.forstmt_.word_)
+      , clone_ListWord(p->u.forstmt_.listword_)
+      , clone_ListJob(p->u.forstmt_.listjob_)
+      );
+
+  case is_WhileStmt:
+    return make_WhileStmt
+      ( clone_Condition(p->u.whilestmt_.condition_)
+      , clone_ListJob(p->u.whilestmt_.listjob_)
+      );
+
+  case is_UntilStmt:
+    return make_UntilStmt
+      ( clone_Condition(p->u.untilstmt_.condition_)
+      , clone_ListJob(p->u.untilstmt_.listjob_)
+      );
+
+  case is_BreakStmt:
+    return make_BreakStmt ();
+
+  case is_ContStmt:
+    return make_ContStmt ();
 
   default:
     fprintf(stderr, "Error: bad kind field when cloning Job!\n");
@@ -685,14 +862,49 @@ Pipeline clone_Pipeline(Pipeline p)
   }
 }
 
+Arg clone_Arg(Arg p)
+{
+  switch(p->kind)
+  {
+  case is_WrdArg:
+    return make_WrdArg (strdup(p->u.wrdarg_.word_));
+
+  case is_ArithArg:
+    return make_ArithArg (strdup(p->u.aritharg_.arithexp_));
+
+  case is_PSubstInArg:
+    return make_PSubstInArg (strdup(p->u.psubstinarg_.procsubstin_));
+
+  case is_PSubstOutArg:
+    return make_PSubstOutArg (strdup(p->u.psubstoutarg_.procsubstout_));
+
+  default:
+    fprintf(stderr, "Error: bad kind field when cloning Arg!\n");
+    exit(1);
+  }
+}
+
+ListArg clone_ListArg(ListArg listarg)
+{
+  if (listarg)
+  {
+    /* clone of non-empty list */
+    return make_ListArg
+      ( clone_Arg(listarg->arg_)
+      , clone_ListArg(listarg->listarg_)
+      );
+  }
+  else return NULL; /* clone of empty list */
+}
+
 CommandPart clone_CommandPart(CommandPart p)
 {
   switch(p->kind)
   {
   case is_Cmd:
     return make_Cmd
-      ( strdup(p->u.cmd_.word_)
-      , clone_ListWord(p->u.cmd_.listword_)
+      ( clone_Arg(p->u.cmd_.arg_)
+      , clone_ListArg(p->u.cmd_.listarg_)
       );
 
   default:
@@ -759,6 +971,28 @@ void free_Job(Job p)
     free_Condition(p->u.ifstmt_.condition_);
     free_ListJob(p->u.ifstmt_.listjob_);
     free_OptElse(p->u.ifstmt_.optelse_);
+    break;
+
+  case is_ForStmt:
+    free(p->u.forstmt_.word_);
+    free_ListWord(p->u.forstmt_.listword_);
+    free_ListJob(p->u.forstmt_.listjob_);
+    break;
+
+  case is_WhileStmt:
+    free_Condition(p->u.whilestmt_.condition_);
+    free_ListJob(p->u.whilestmt_.listjob_);
+    break;
+
+  case is_UntilStmt:
+    free_Condition(p->u.untilstmt_.condition_);
+    free_ListJob(p->u.untilstmt_.listjob_);
+    break;
+
+  case is_BreakStmt:
+    break;
+
+  case is_ContStmt:
     break;
 
   default:
@@ -942,13 +1176,50 @@ void free_Pipeline(Pipeline p)
   free(p);
 }
 
+void free_Arg(Arg p)
+{
+  switch(p->kind)
+  {
+  case is_WrdArg:
+    free(p->u.wrdarg_.word_);
+    break;
+
+  case is_ArithArg:
+    free(p->u.aritharg_.arithexp_);
+    break;
+
+  case is_PSubstInArg:
+    free(p->u.psubstinarg_.procsubstin_);
+    break;
+
+  case is_PSubstOutArg:
+    free(p->u.psubstoutarg_.procsubstout_);
+    break;
+
+  default:
+    fprintf(stderr, "Error: bad kind field when freeing Arg!\n");
+    exit(1);
+  }
+  free(p);
+}
+
+void free_ListArg(ListArg listarg)
+{
+  if (listarg)
+  {
+    free_Arg(listarg->arg_);
+    free_ListArg(listarg->listarg_);
+    free(listarg);
+  }
+}
+
 void free_CommandPart(CommandPart p)
 {
   switch(p->kind)
   {
   case is_Cmd:
-    free(p->u.cmd_.word_);
-    free_ListWord(p->u.cmd_.listword_);
+    free_Arg(p->u.cmd_.arg_);
+    free_ListArg(p->u.cmd_.listarg_);
     break;
 
   default:

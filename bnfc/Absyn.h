@@ -21,8 +21,11 @@ typedef char Char;
 typedef double Double;
 typedef char* String;
 typedef char* Ident;
-typedef char* Word;
+typedef char* ArithExp;
+typedef char* ProcSubstIn;
+typedef char* ProcSubstOut;
 typedef char* Assign;
+typedef char* Word;
 
 /********************   Forward Declarations    ***********************/
 struct Input_;
@@ -52,6 +55,12 @@ typedef struct OptRedir_ *OptRedir;
 struct Pipeline_;
 typedef struct Pipeline_ *Pipeline;
 
+struct Arg_;
+typedef struct Arg_ *Arg;
+
+struct ListArg_;
+typedef struct ListArg_ *ListArg;
+
 struct CommandPart_;
 typedef struct CommandPart_ *CommandPart;
 
@@ -73,13 +82,16 @@ Input make_StartInput(ListJob p0);
 
 struct Job_
 {
-  enum { is_OneJobFG, is_OneJobBG, is_AssignJob, is_IfStmt } kind;
+  enum { is_OneJobFG, is_OneJobBG, is_AssignJob, is_IfStmt, is_ForStmt, is_WhileStmt, is_UntilStmt, is_BreakStmt, is_ContStmt } kind;
   union
   {
     struct { Condition condition_; } onejobfg_;
     struct { Condition condition_; } onejobbg_;
     struct { Assign assign_; } assignjob_;
     struct { Condition condition_; ListJob listjob_; OptElse optelse_; } ifstmt_;
+    struct { ListJob listjob_; ListWord listword_; Word word_; } forstmt_;
+    struct { Condition condition_; ListJob listjob_; } whilestmt_;
+    struct { Condition condition_; ListJob listjob_; } untilstmt_;
   } u;
 };
 
@@ -87,6 +99,11 @@ Job make_OneJobFG(Condition p0);
 Job make_OneJobBG(Condition p0);
 Job make_AssignJob(Assign p0);
 Job make_IfStmt(Condition p0, ListJob p1, OptElse p2);
+Job make_ForStmt(Word p0, ListWord p1, ListJob p2);
+Job make_WhileStmt(Condition p0, ListJob p1);
+Job make_UntilStmt(Condition p0, ListJob p1);
+Job make_BreakStmt(void);
+Job make_ContStmt(void);
 
 struct ListJob_
 {
@@ -194,16 +211,41 @@ struct Pipeline_
 Pipeline make_Single(CommandPart p0);
 Pipeline make_Pipe(CommandPart p0, Pipeline p1);
 
+struct Arg_
+{
+  enum { is_WrdArg, is_ArithArg, is_PSubstInArg, is_PSubstOutArg } kind;
+  union
+  {
+    struct { Word word_; } wrdarg_;
+    struct { ArithExp arithexp_; } aritharg_;
+    struct { ProcSubstIn procsubstin_; } psubstinarg_;
+    struct { ProcSubstOut procsubstout_; } psubstoutarg_;
+  } u;
+};
+
+Arg make_WrdArg(Word p0);
+Arg make_ArithArg(ArithExp p0);
+Arg make_PSubstInArg(ProcSubstIn p0);
+Arg make_PSubstOutArg(ProcSubstOut p0);
+
+struct ListArg_
+{
+  Arg arg_;
+  ListArg listarg_;
+};
+
+ListArg make_ListArg(Arg p1, ListArg p2);
+
 struct CommandPart_
 {
   enum { is_Cmd } kind;
   union
   {
-    struct { ListWord listword_; Word word_; } cmd_;
+    struct { Arg arg_; ListArg listarg_; } cmd_;
   } u;
 };
 
-CommandPart make_Cmd(Word p0, ListWord p1);
+CommandPart make_Cmd(Arg p0, ListArg p1);
 
 struct ListWord_
 {
@@ -224,6 +266,8 @@ NegCmd clone_NegCmd(NegCmd p);
 CommandLine clone_CommandLine(CommandLine p);
 OptRedir clone_OptRedir(OptRedir p);
 Pipeline clone_Pipeline(Pipeline p);
+Arg clone_Arg(Arg p);
+ListArg clone_ListArg(ListArg p);
 CommandPart clone_CommandPart(CommandPart p);
 ListWord clone_ListWord(ListWord p);
 
@@ -246,6 +290,8 @@ void free_NegCmd(NegCmd p);
 void free_CommandLine(CommandLine p);
 void free_OptRedir(OptRedir p);
 void free_Pipeline(Pipeline p);
+void free_Arg(Arg p);
+void free_ListArg(ListArg p);
 void free_CommandPart(CommandPart p);
 void free_ListWord(ListWord p);
 

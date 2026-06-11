@@ -47,6 +47,28 @@ void visitJob(Job p)
     visitListJob(p->u.ifstmt_.listjob_);
     visitOptElse(p->u.ifstmt_.optelse_);
     break;
+  case is_ForStmt:
+    /* Code for ForStmt Goes Here */
+    visitWord(p->u.forstmt_.word_);
+    visitListWord(p->u.forstmt_.listword_);
+    visitListJob(p->u.forstmt_.listjob_);
+    break;
+  case is_WhileStmt:
+    /* Code for WhileStmt Goes Here */
+    visitCondition(p->u.whilestmt_.condition_);
+    visitListJob(p->u.whilestmt_.listjob_);
+    break;
+  case is_UntilStmt:
+    /* Code for UntilStmt Goes Here */
+    visitCondition(p->u.untilstmt_.condition_);
+    visitListJob(p->u.untilstmt_.listjob_);
+    break;
+  case is_BreakStmt:
+    /* Code for BreakStmt Goes Here */
+    break;
+  case is_ContStmt:
+    /* Code for ContStmt Goes Here */
+    break;
 
   default:
     fprintf(stderr, "Error: bad kind field when printing Job!\n");
@@ -228,14 +250,51 @@ void visitPipeline(Pipeline p)
   }
 }
 
+void visitArg(Arg p)
+{
+  switch(p->kind)
+  {
+  case is_WrdArg:
+    /* Code for WrdArg Goes Here */
+    visitWord(p->u.wrdarg_.word_);
+    break;
+  case is_ArithArg:
+    /* Code for ArithArg Goes Here */
+    visitArithExp(p->u.aritharg_.arithexp_);
+    break;
+  case is_PSubstInArg:
+    /* Code for PSubstInArg Goes Here */
+    visitProcSubstIn(p->u.psubstinarg_.procsubstin_);
+    break;
+  case is_PSubstOutArg:
+    /* Code for PSubstOutArg Goes Here */
+    visitProcSubstOut(p->u.psubstoutarg_.procsubstout_);
+    break;
+
+  default:
+    fprintf(stderr, "Error: bad kind field when printing Arg!\n");
+    exit(1);
+  }
+}
+
+void visitListArg(ListArg listarg)
+{
+  while(listarg  != 0)
+  {
+    /* Code For ListArg Goes Here */
+    visitArg(listarg->arg_);
+    listarg = listarg->listarg_;
+  }
+}
+
 void visitCommandPart(CommandPart p)
 {
   switch(p->kind)
   {
   case is_Cmd:
     /* Code for Cmd Goes Here */
-    visitWord(p->u.cmd_.word_);
-    visitListWord(p->u.cmd_.listword_);
+    visitArg(p->u.cmd_.arg_);
+    visitListArg(p->u.cmd_.listarg_);
     break;
 
   default:
@@ -254,13 +313,25 @@ void visitListWord(ListWord listword)
   }
 }
 
-void visitWord(Word p)
+void visitArithExp(ArithExp p)
 {
-  /* Code for Word Goes Here */
+  /* Code for ArithExp Goes Here */
+}
+void visitProcSubstIn(ProcSubstIn p)
+{
+  /* Code for ProcSubstIn Goes Here */
+}
+void visitProcSubstOut(ProcSubstOut p)
+{
+  /* Code for ProcSubstOut Goes Here */
 }
 void visitAssign(Assign p)
 {
   /* Code for Assign Goes Here */
+}
+void visitWord(Word p)
+{
+  /* Code for Word Goes Here */
 }
 void visitIdent(Ident i)
 {
