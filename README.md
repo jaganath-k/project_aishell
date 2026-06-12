@@ -1,8 +1,8 @@
-# week8 — MCP/AI Integration + Grammar Improvements
+# week9+ — 59 Commands, Full Shell Grammar, Arithmetic & Process Substitution
 
-A modular, BusyBox-style shell implemented in C. All 35 commands compile into a **single `aishell` binary** that runs as an interactive REPL or dispatches subcommands directly.
+A modular, BusyBox-style shell implemented in C. All 59 commands compile into a **single `aishell` binary** that runs as an interactive REPL or dispatches subcommands directly.
 
-Builds on [week7](https://github.com/jaganath-k/project_aishell) (BNFC grammar pipeline). Week 8 adds a three-tier natural-language `@` command interface backed by a local command registry, an MCP server probe, and an OpenRouter AI fallback. The grammar is extended with stderr redirects (`2>`, `2>>`, `&>`), command substitution (`$(…)`), and a wider token charset. Three new text-processing commands (`uniq`, `cut`, `tr`) bring the command count to 35.
+Builds on [week8](https://github.com/jaganath-k/project_aishell) (MCP/AI integration). Week 9–12 extends the shell with 24 new utility commands, full POSIX-style conditional tests (`test` / `[`), stream multiplexing (`xargs`, `tee`, `nc`), checksums, aliases, command history, arithmetic expansion with variable references (`$((x * 2))`), and process substitution (`<(cmd)`, `>(cmd)`).
 
 ---
 
@@ -27,58 +27,9 @@ export OPENROUTER_API_KEY=sk-or-v1-...
 
 ---
 
-## AI / Natural Language Commands (`@`)
+## Commands (59)
 
-Type `@ <natural language query>` to let the shell find and run the right command.
-
-```sh
-@ check system uptime
-@ list open network connections
-@ delete files older than 7 days in /tmp
-@ show top cpu processes
-@ list   # show all registry entries
-@ log    # tail the last 20 calls from aishell_calls.log
-```
-
-### Three-Tier Lookup Chain
-
-```
-user types "@ <query>"
-       │
-       ▼
-[1] commands.json registry   — 18 entries, keyword match, zero latency
-       │ miss
-       ▼
-[2] MCP server (localhost:9000, TCP)   — sub-ms probe
-       │ unavailable
-       ▼
-[3] OpenRouter AI (HTTPS, libcurl)    — multi-model free → paid fallback
-       │
-       ▼
-  show command + explanation → confirm → execute
-```
-
-All queries and outcomes are appended to `aishell_calls.log` (thread-safe).
-
-### OpenRouter Model Chain
-
-| Model | Tier | Notes |
-|-------|------|-------|
-| `google/gemma-4-31b-it:free` | Free | 31B — best free quality |
-| `meta-llama/llama-3.3-70b-instruct:free` | Free | 70B — high quality |
-| `meta-llama/llama-3.2-3b-instruct:free` | Free | Small, fast |
-| `google/gemma-3-4b-it` | Paid | $0.04/1M — cheapest paid |
-| `google/gemini-2.5-flash-lite` | Paid | $0.10/1M — reliable fallback |
-
-```sh
-export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
-```
-
----
-
-## Commands (35)
-
-### File & Directory (11)
+### File & Directory (14)
 
 | Command | Key Flags | Summary |
 |---------|-----------|---------|
@@ -93,6 +44,9 @@ export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
 | `mkdir` | `-p` parents | Create directories |
 | `rmdir` | `-p` parents | Remove empty directories |
 | `touch` | — | Create files or update timestamps |
+| `ln`    | `-s` symlink, `-f` force | Create hard or symbolic links |
+| `chmod` | `MODE FILE` | Change file permissions |
+| `chown` | `OWNER[:GROUP] FILE` | Change file owner and group |
 
 ### Search & Navigation (2)
 
@@ -101,7 +55,7 @@ export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
 | `rg`    | `-i` case, `-F` fixed, `-l` files-only, `-r` recursive, `--json` | Search files with POSIX extended regex |
 | `find`  | `-n PATTERN` glob, `-t f/d/l` type, `--maxdepth N` | Recursively search directory tree |
 
-### Text Processing (6)
+### Text Processing (10)
 
 | Command | Key Flags | Summary |
 |---------|-----------|---------|
@@ -110,7 +64,20 @@ export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
 | `uniq`  | `-c` count, `-d` repeated, `-u` unique, `-i` ignore-case | Filter adjacent duplicate lines |
 | `cut`   | `-d DELIM`, `-f LIST` fields, `-c LIST` chars | Remove sections from each line |
 | `tr`    | `-d` delete, `-s` squeeze, `-c` complement | Translate or delete characters |
+| `grep`  | `-i` case, `-v` invert, `-n` line numbers, `-r` recursive | Print lines matching a pattern |
+| `diff`  | — | Compare files line by line |
+| `tee`   | `-a` append | Read stdin, write to stdout and files |
 | `date`  | `-u` UTC, `-f FMT` strftime | Print current date and time |
+| `xargs` | `-n N` batch, `-I {}` replace, `-P N` parallel, `-0` null | Build and execute commands from stdin |
+
+### Disk & System (4)
+
+| Command | Key Flags | Summary |
+|---------|-----------|---------|
+| `du`    | `-s` summary, `-h` human | Estimate file space usage |
+| `df`    | `-h` human | Report file system disk space usage |
+| `file`  | — | Determine file type |
+| `sleep` | `N[smhd]` | Suspend execution for a time interval |
 
 ### Process Management (4)
 
@@ -121,15 +88,16 @@ export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
 | `wait`  | — | Wait for a process to complete |
 | `jobs`  | `--json` | List background jobs |
 
-### Shell & Navigation (3)
+### Shell & Navigation (4)
 
 | Command | Key Flags | Summary |
 |---------|-----------|---------|
 | `cd`    | — | Change the working directory |
 | `pwd`   | — | Print the current working directory |
 | `echo`  | `-n` no newline | Display a line of text |
+| `which` | — | Locate a command on PATH |
 
-### Environment (4)
+### Environment & Shell Control (7)
 
 | Command | Key Flags | Summary |
 |---------|-----------|---------|
@@ -137,6 +105,38 @@ export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
 | `export` | `NAME[=VALUE]` | Set or display variables in `declare -x` format |
 | `unset`  | `NAME...` | Remove variables from the environment |
 | `type`   | — | Show how a name is interpreted |
+| `true`   | — | Return exit status 0 |
+| `false`  | — | Return exit status 1 |
+| `read`   | `-p PROMPT -s -n N -d DELIM -t N` | Read a line from stdin into a variable |
+
+### Conditionals (2)
+
+| Command | Key Flags | Summary |
+|---------|-----------|---------|
+| `test`  | `-f -d -e -r -w -x -s -L -z -n`, `=`, `!=`, `-eq -ne -lt -le -gt -ge`, `! -a -o` | Evaluate a conditional expression |
+| `[`     | same as test, requires closing `]` | Alias for test used in `if [ ... ]` syntax |
+
+### Checksums (2)
+
+| Command | Summary |
+|---------|---------|
+| `md5sum`    | Compute MD5 checksum of files or stdin |
+| `sha256sum` | Compute SHA-256 checksum of files or stdin |
+
+### Networking (2)
+
+| Command | Key Flags | Summary |
+|---------|-----------|---------|
+| `ping`  | `-c N` count, `-i N` interval, `-W N` timeout | Send ICMP echo requests |
+| `nc`    | `-l` listen, `-p PORT`, `-z` zero-I/O, `-u` UDP | TCP/UDP client and server |
+
+### Session (2)
+
+| Command | Key Flags | Summary |
+|---------|-----------|---------|
+| `alias`   | `NAME=VALUE` | Define or display command aliases |
+| `unalias` | `NAME` | Remove a command alias |
+| `history` | `-c` clear, `-n N` show last N | Display or clear command history |
 
 ### File Editing (5)
 
@@ -157,24 +157,42 @@ export AISHELL_MODEL=google/gemma-4-31b-it:free   # pin a specific model
 
 ---
 
-## Package Manager (`pkg`)
+## AI / Natural Language Commands (`@`)
 
-`pkg` is a standalone binary managing the full lifecycle of aishell packages.
+Type `@ <natural language query>` to let the shell find and run the right command.
 
-| Command | Description |
-|---------|-------------|
-| `pkg build <src-dir> <out.tar.gz>` | Package source into a distributable archive |
-| `pkg install <archive.tar.gz>` | Install from a local archive |
-| `pkg list` | Show all installed packages |
-| `pkg remove <name>` | Uninstall a package |
-| `pkg check-update <name>` | Query registry for newer version |
-| `pkg upgrade <name>` | Download and install latest version |
+```sh
+@ check system uptime
+@ list open network connections
+@ delete files older than 7 days in /tmp
+@ show top cpu processes
+@ list   # show all registry entries
+@ log    # tail the last 20 calls from aishell_calls.log
+```
+
+### Three-Tier Lookup Chain
+
+```
+user types "@ <query>"
+       │
+       ▼
+[1] commands.json registry   — keyword match, zero latency
+       │ miss
+       ▼
+[2] MCP server (localhost:9000, TCP)   — sub-ms probe
+       │ unavailable
+       ▼
+[3] OpenRouter AI (HTTPS, libcurl)    — multi-model free → paid fallback
+       │
+       ▼
+  show command + explanation → confirm → execute
+```
 
 ---
 
 ## Build
 
-**Requirements:** `gcc`, `make`, `argtable3`, `bnfc`, `flex`, `bison`, `libcurl` (optional — enables AI fallback)
+**Requirements:** `gcc`, `make`, `argtable3`, `bnfc`, `flex`, `bison`, `libcurl` (optional)
 
 ```sh
 # Install argtable3 (one-time)
@@ -192,7 +210,9 @@ make            # produces ./aishell
 make clean      # remove build artifacts
 ```
 
-The Makefile auto-detects libcurl. Without it the shell builds and runs normally — the AI fallback prints an install hint instead of calling OpenRouter.
+> **Note:** After any `Grammar.cf` change, run `make bnfc-gen` and then manually run
+> `cd bnfc && bison -t -pgrammar_ Grammar.y -o Parser.c` to ensure `Bison.h` is regenerated,
+> then `make clean && make`.
 
 ---
 
@@ -204,78 +224,72 @@ The Makefile auto-detects libcurl. Without it the shell builds and runs normally
 | SIGCHLD handler | `waitpid(-1, WNOHANG)` reaps finished children — no zombies |
 | Dynamic prompt | Shows current directory `[/tmp] jshell%`; change with `prompt STRING` |
 | Pipelines | `cmd1 \| cmd2 \| cmd3` — built-in and external stages mixed freely |
-| Background jobs | `cmd &` — processes return `[N] PID`; built-ins return `[N] (thread)` |
+| Background jobs | `cmd &` — processes return `[N] PID` |
 | Output redirect | `cmd > file` (truncate), `cmd >> file` (append) |
 | Stderr redirect | `cmd 2> file`, `cmd 2>> file`, `cmd &> file` (stdout+stderr) |
 | Input redirect | `cmd < file` |
 | Command substitution | `echo $(date)`, `ls $(pwd)` — output replaces the expression |
+| **Arithmetic expansion** | `$((expr))` — `+` `-` `*` `/` `%`, parentheses, variable references (`$((x * 2))`) |
+| **Process substitution** | `diff <(sort a) <(sort b)`, `tee >(gzip > out.gz)` — via `/proc/self/fd/N` |
 | Glob wildcards | `*.c`, `*.h`, `?` expanded via `glob(GLOB_NOCHECK)` |
 | Quoted strings | `"hello world"` — single argument with space; `$var` expanded inside |
-| AND list | `cmd1 && cmd2` — run cmd2 only if cmd1 succeeds |
-| OR list | `cmd1 \|\| cmd2` — run cmd2 only if cmd1 fails |
-| Negation | `! cmd` / `! pipeline` — invert exit code |
+| AND / OR lists | `cmd1 && cmd2`, `cmd1 \|\| cmd2` |
+| Negation | `! cmd` — invert exit code |
 | Subshell | `( cmd1 ; cmd2 )` — isolated child process |
-| Group command | `{ cmd1 ; cmd2 }` — current process; changes propagate |
-| if / then / elif / else / fi | Full conditional with unlimited `elif` branches |
-| Arithmetic expansion | `$((expr))` — `+` `-` `*` `/` `%`, parentheses, variables |
-| Variable assignment | `x=value` — stored in shell variable store |
+| Command group | `{ cmd1 ; cmd2 }` — current process |
+| if / elif / else / fi | Full conditional with unlimited `elif` branches |
+| for / while / until | `for i in LIST; do ...`, `while COND; do ...`, `until COND; do ...` |
+| break / continue | Loop control |
+| Variable assignment | `x=value` — stored in shell variable store and environment |
 | Variable expansion | `$x`, `$?`, `$$`, `${var}` — with `getenv()` fallback |
+| **Conditionals** | `test EXPR` / `[ EXPR ]` — file, string, numeric, and logical tests |
 | @ NL interface | `@ query` — 3-tier lookup: registry → MCP → OpenRouter AI |
-| `--commands-json` | Emits all 35 commands as JSON for AI/tooling integration |
+| `--commands-json` | Emits all registered commands as JSON for AI/tooling integration |
 
 ---
 
-## Grammar (week8 additions on top of week7)
+## Grammar (`bnfc/Grammar.cf`)
 
-### New in week8
+### Token types
 
-| Feature | Grammar / Code |
-|---------|---------------|
-| Wider `Word` charset | `+`, `%`, `,` added — enables `ps -eo %cpu`, `find -size +10M` |
-| `2> FILE` | `ErrRedir` production |
-| `2>> FILE` | `ErrAppRedir` production |
-| `&> FILE` | `BothRedir` production — redirects stdout+stderr |
-| `$(cmd)` | `preprocess_cmd_subst()` — runs before BNFC parse, uses `popen()` |
+| Token | Pattern | Purpose |
+|-------|---------|---------|
+| `ArithExp` | `$((` … `))` | Arithmetic expansion; spaces allowed inside |
+| `ProcSubstIn` | `<(` … `)` | Process substitution (read end) |
+| `ProcSubstOut` | `>(` … `)` | Process substitution (write end) |
+| `Assign` | `NAME=VALUE` | Variable assignment |
+| `Word` | alphanum + `-._/:*?~$\`+%,=[]` | Standard shell token |
 
-### Full `OptRedir` productions
+### Command argument types
 
-```
-ErrAppRedir  ::= "2>>" Word
-ErrRedir     ::= "2>"  Word
-BothRedir    ::= "&>"  Word
-AppendRedir  ::= ">>"  Word
-OutRedir     ::= ">"   Word
-InRedir      ::= "<"   Word
-InOutRedir   ::= "<"   Word ">" Word
-OutInRedir   ::= ">"   Word "<" Word
-```
-
-### BNFC Grammar Pipeline (week8)
+`CommandPart` accepts an `Arg` non-terminal that can be any of:
 
 ```
-getline (EINTR-safe)
-  → preprocess_arith()      $((expr)) → numeric result
-  → preprocess_cmd_subst()  $(cmd)    → popen output (week8)
-  → preprocess_quotes()     "hello world" → hello`world
-  → psInput(line)           BNFC LR parser → typed AST
-  → eval_input()
+WrdArg.        Arg ::= Word ;
+ArithArg.      Arg ::= ArithExp ;
+PSubstInArg.   Arg ::= ProcSubstIn ;
+PSubstOutArg.  Arg ::= ProcSubstOut ;
 ```
 
-### Grammar Hierarchy
+### Grammar hierarchy
 
 ```
-Input     → [Job]
-Job       → Condition | Condition & | Assign
-          | "if" Condition "then" [Job] OptElse "fi"
-OptElse   → (empty) | "else" [Job] | "elif" Condition "then" [Job] OptElse
-Condition → NegCmd | NegCmd "&&" Condition | NegCmd "||" Condition
-NegCmd    → CommandLine | "!" NegCmd | "time" NegCmd
-          | "(" [Job] ")" | "{" [Job] "}"
+Input       → [Job]
+Job         → Condition | Condition & | Assign
+            | "if" Condition "then" [Job] OptElse "fi"
+            | "for" Word "in" [Word] "do" [Job] "done"
+            | "while" Condition "do" [Job] "done"
+            | "until" Condition "do" [Job] "done"
+            | "break" | "continue"
+OptElse     → (empty) | "else" [Job] | "elif" Condition "then" [Job] OptElse
+Condition   → NegCmd | NegCmd "&&" Condition | NegCmd "||" Condition
+NegCmd      → CommandLine | "!" NegCmd | "time" NegCmd
+            | "(" [Job] ")" | "{" [Job] "}"
 CommandLine → Pipeline OptRedir
-OptRedir  → (empty) | "2>>" Word | "2>" Word | "&>" Word
-          | ">>" Word | ">" Word | "<" Word
-Pipeline  → CommandPart | CommandPart "|" Pipeline
-CommandPart → Word [Word]
+OptRedir    → (empty) | "2>>" Word | "2>" Word | "&>" Word
+            | ">>" Word | ">" Word | "<" Word
+Pipeline    → CommandPart | CommandPart "|" Pipeline
+CommandPart → Arg [Arg]
 ```
 
 ---
@@ -283,43 +297,47 @@ CommandPart → Word [Word]
 ## Usage Examples
 
 ```sh
-# AI natural language (week8)
-@ check system uptime
-@ list open network connections
-@ delete files older than 7 days in /tmp
-@ show top cpu processes
+# Arithmetic expansion with variable references
+x=5
+echo $((x * 2))          # 10
+echo $((x * x + 1))      # 26
+sleep $((60 * 5))        # sleep 5 minutes
+
+# Process substitution
+diff <(sort file1) <(sort file2)
+comm <(sort a.txt) <(sort b.txt)
+echo hello | tee >(wc -c) >/dev/null
+
+# Conditional tests
+test -f Makefile && echo "exists"
+[ -d /tmp ] && echo "is a dir"
+[ "$x" -gt 3 ] && echo "greater"
+if [ -f /etc/hostname ]; then cat /etc/hostname; fi
+
+# xargs
+find . -name "*.c" | xargs wc -l
+echo "a b c" | xargs -n1 echo
+ls *.c | xargs -I{} cp {} /tmp/backup/
+
+# Checksums
+md5sum Makefile
+echo "test" | sha256sum
+
+# Networking
+nc -z localhost 22 && echo "port 22 open"
+
+# Aliases
+alias ll='ls -la'
+ll /tmp
+
+# Pipelines and redirects
+grep -r "TODO" . 2>/dev/null | sort | uniq
+ls -la | sort -k5 -n | tail -5
+diff <(echo hello) <(echo world)
+
+# AI natural language
 @ count lines in all c files
-
-# New text processing commands (week8)
-printf "apple\napple\nbanana\n" | ./aishell uniq
-printf "apple\napple\nbanana\n" | ./aishell uniq -c
-echo "one:two:three" | ./aishell cut -d: -f2
-echo "abcdef" | ./aishell cut -c2-4
-echo "Hello World" | ./aishell tr 'a-z' 'A-Z'
-echo "Hello 123" | ./aishell tr -d '0-9'
-echo "hello   world" | ./aishell tr -s ' '
-
-# New redirects (week8)
-make 2> build_errors.txt          # stderr to file
-make &> build_all.log             # stdout+stderr to file
-make 2>> build_errors.txt         # append stderr
-
-# Command substitution (week8)
-echo $(date)
-ls $(pwd)
-echo $(uname -r)
-
-# Grammar features (week7) — inside ./aishell
-echo "hello world"
-x=hello ; echo $x
-echo $((2+3*4))
-ls && echo ok
-ls NOTEXIST || echo fallback
-! /usr/bin/false && echo negated
-if ls *.c then echo found fi
-( cd /tmp ; pwd )
-time ls | /usr/bin/wc -l
-./aishell --commands-json
+@ show disk usage sorted by size
 ```
 
 ---
@@ -336,17 +354,18 @@ Every command follows the **APPANATOMY** pattern:
 ### Source Layout
 
 ```
-aishell_main.c           — REPL, dispatch, BNFC evaluator, @ handler
+aishell_main.c           — REPL, dispatch, BNFC evaluator, @ handler, arith/process-subst
 bnfc/Grammar.cf          — BNF grammar source (single file you author)
-bnfc/                    — BNFC-generated files
-commands.json            — 18-entry NL command registry (week8)
-cmd_registry.c/h         — cJSON-based registry loader + keyword matcher (week8)
-mcp_client.c/h           — non-blocking TCP client to MCP server (week8)
-aishell_client.c/h       — OpenRouter AI client via libcurl (week8)
-aishell_log.c/h          — thread-safe append logger (week8)
+bnfc/                    — BNFC-generated files (Absyn.h, Lexer.c, Parser.c, …)
+commands.json            — NL command registry
+cmd_registry.c/h         — cJSON-based registry loader + keyword matcher
+mcp_client.c/h           — non-blocking TCP client to MCP server
+aishell_client.c/h       — OpenRouter AI client via libcurl
+aishell_log.c/h          — thread-safe append logger
 cJSON.c/h                — embedded JSON parser
-cmd_<name>.c             — one file per command (35 total)
+cmd_<name>.c             — one file per command (59 total)
 edit_utils.c/h           — shared file I/O for edit-* commands
+hash_utils.c/h           — shared MD5/SHA-256 implementation
 cmd_spec.h               — cmd_spec_t definition + registry API
 cmd_help_json.c/h        — shared --help-json implementation
 registry.c               — register_command / find_command / for_each_command
@@ -357,6 +376,7 @@ test_week5.sh            — 25 checks — process management
 test_week6.sh            — 23 checks — pthread integration
 test_week7.sh            — 26 checks — BNFC grammar features
 test_week8.sh            — 21 checks — AI/registry/MCP integration
+test_week9.sh            — 40 checks — new commands, arithmetic, process substitution
 ```
 
 ---
@@ -364,10 +384,11 @@ test_week8.sh            — 21 checks — AI/registry/MCP integration
 ## Test Suites
 
 ```sh
-bash test_week5.sh   # 25 / 25 — fork/exec, pipes, redirects, signals
+bash test_week5.sh   # 25 checks — fork/exec, pipes, redirects, signals
 bash test_week6.sh   # 23 / 23 — pthreads, job table, clean shutdown
-bash test_week7.sh   # 26 / 26 — grammar, variables, conditions, arithmetic
+bash test_week7.sh   # 26 / 26 — grammar, variables, conditions
 bash test_week8.sh   # 21 checks — 14 pass offline (7 require live API key / MCP)
+bash test_week9.sh   # 40 checks — xargs, read, test/[, nc, arithmetic, process subst
 ```
 
 ---
@@ -377,9 +398,10 @@ bash test_week8.sh   # 21 checks — 14 pass offline (7 require live API key / M
 Every command supports `--help-json` and `--help`:
 
 ```sh
-./aishell uniq --help-json
-./aishell cut  --help-json
-./aishell tr   --help-json
+./aishell xargs  --help-json
+./aishell read   --help-json
+./aishell test   --help-json
+./aishell nc     --help-json
 ./aishell --commands-json | python3 -m json.tool
 ```
 
@@ -387,9 +409,10 @@ Pre-generated snapshots live in `docs/`. Regenerate all:
 
 ```sh
 for cmd in ls cat stat head tail cp mv rm mkdir rmdir touch rg ps kill wait \
-           jobs cd pwd echo env export unset type wc sort uniq cut tr date \
-           find edit-show edit-replace-line edit-insert-line edit-delete-line \
-           edit-replace; do
-    ./aishell $cmd --help-json > docs/${cmd}.json
+           jobs cd pwd echo env export unset type wc sort uniq cut tr grep diff \
+           tee du df ln chmod chown sleep which true false file date find \
+           md5sum sha256sum alias history ping nc xargs read test \
+           edit-show edit-replace-line edit-insert-line edit-delete-line edit-replace; do
+    ./aishell $cmd --help-json > docs/${cmd}.json 2>/dev/null
 done
 ```
