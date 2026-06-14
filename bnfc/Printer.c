@@ -182,6 +182,50 @@ void ppJob(Job p, int _i_)
     if (_i_ > 0) renderC(_R_PAREN);
     break;
 
+  case is_ForStmt:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("for");
+    ppIdent(p->u.forstmt_.word_, 0);
+    renderS("in");
+    ppListWord(p->u.forstmt_.listword_, 0);
+    renderS("do");
+    ppListJob(p->u.forstmt_.listjob_, 0);
+    renderS("done");
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_WhileStmt:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("while");
+    ppCondition(p->u.whilestmt_.condition_, 0);
+    renderS("do");
+    ppListJob(p->u.whilestmt_.listjob_, 0);
+    renderS("done");
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_UntilStmt:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("until");
+    ppCondition(p->u.untilstmt_.condition_, 0);
+    renderS("do");
+    ppListJob(p->u.untilstmt_.listjob_, 0);
+    renderS("done");
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_BreakStmt:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("break");
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_ContStmt:
+    if (_i_ > 0) renderC(_L_PAREN);
+    renderS("continue");
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
   default:
     fprintf(stderr, "Error: bad kind field when printing Job!\n");
     exit(1);
@@ -431,14 +475,67 @@ void ppPipeline(Pipeline p, int _i_)
   }
 }
 
+void ppArg(Arg p, int _i_)
+{
+  switch(p->kind)
+  {
+  case is_WrdArg:
+    if (_i_ > 0) renderC(_L_PAREN);
+    ppIdent(p->u.wrdarg_.word_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_ArithArg:
+    if (_i_ > 0) renderC(_L_PAREN);
+    ppIdent(p->u.aritharg_.arithexp_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_PSubstInArg:
+    if (_i_ > 0) renderC(_L_PAREN);
+    ppIdent(p->u.psubstinarg_.procsubstin_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_PSubstOutArg:
+    if (_i_ > 0) renderC(_L_PAREN);
+    ppIdent(p->u.psubstoutarg_.procsubstout_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  case is_AssignArg:
+    if (_i_ > 0) renderC(_L_PAREN);
+    ppIdent(p->u.assignarg_.assign_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
+  default:
+    fprintf(stderr, "Error: bad kind field when printing Arg!\n");
+    exit(1);
+  }
+}
+
+void ppListArg(ListArg listarg, int i)
+{
+  if (listarg == 0)
+  { /* nil */
+  }
+  else
+  { /* cons */
+    ppArg(listarg->arg_, 0);
+    renderC(' ');
+    ppListArg(listarg->listarg_, 0);
+  }
+}
+
 void ppCommandPart(CommandPart p, int _i_)
 {
   switch(p->kind)
   {
   case is_Cmd:
     if (_i_ > 0) renderC(_L_PAREN);
-    ppIdent(p->u.cmd_.word_, 0);
-    ppListWord(p->u.cmd_.listword_, 0);
+    ppArg(p->u.cmd_.arg_, 0);
+    ppListArg(p->u.cmd_.listarg_, 0);
     if (_i_ > 0) renderC(_R_PAREN);
     break;
 
@@ -492,13 +589,31 @@ void ppIdent(String s, int i)
   renderS(s);
 }
 
-void ppWord(String s, int i)
+void ppArithExp(String s, int i)
+{
+  renderS(s);
+}
+
+
+void ppProcSubstIn(String s, int i)
+{
+  renderS(s);
+}
+
+
+void ppProcSubstOut(String s, int i)
 {
   renderS(s);
 }
 
 
 void ppAssign(String s, int i)
+{
+  renderS(s);
+}
+
+
+void ppWord(String s, int i)
 {
   renderS(s);
 }
@@ -581,6 +696,66 @@ void shJob(Job p)
     shOptElse(p->u.ifstmt_.optelse_);
 
     bufAppendC(')');
+
+    break;
+  case is_ForStmt:
+    bufAppendC('(');
+
+    bufAppendS("ForStmt");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.forstmt_.word_);
+  bufAppendC(' ');
+    shListWord(p->u.forstmt_.listword_);
+  bufAppendC(' ');
+    shListJob(p->u.forstmt_.listjob_);
+
+    bufAppendC(')');
+
+    break;
+  case is_WhileStmt:
+    bufAppendC('(');
+
+    bufAppendS("WhileStmt");
+
+    bufAppendC(' ');
+
+    shCondition(p->u.whilestmt_.condition_);
+  bufAppendC(' ');
+    shListJob(p->u.whilestmt_.listjob_);
+
+    bufAppendC(')');
+
+    break;
+  case is_UntilStmt:
+    bufAppendC('(');
+
+    bufAppendS("UntilStmt");
+
+    bufAppendC(' ');
+
+    shCondition(p->u.untilstmt_.condition_);
+  bufAppendC(' ');
+    shListJob(p->u.untilstmt_.listjob_);
+
+    bufAppendC(')');
+
+    break;
+  case is_BreakStmt:
+
+    bufAppendS("BreakStmt");
+
+
+
+
+    break;
+  case is_ContStmt:
+
+    bufAppendS("ContStmt");
+
+
+
 
     break;
 
@@ -960,6 +1135,97 @@ void shPipeline(Pipeline p)
   }
 }
 
+void shArg(Arg p)
+{
+  switch(p->kind)
+  {
+  case is_WrdArg:
+    bufAppendC('(');
+
+    bufAppendS("WrdArg");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.wrdarg_.word_);
+
+    bufAppendC(')');
+
+    break;
+  case is_ArithArg:
+    bufAppendC('(');
+
+    bufAppendS("ArithArg");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.aritharg_.arithexp_);
+
+    bufAppendC(')');
+
+    break;
+  case is_PSubstInArg:
+    bufAppendC('(');
+
+    bufAppendS("PSubstInArg");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.psubstinarg_.procsubstin_);
+
+    bufAppendC(')');
+
+    break;
+  case is_PSubstOutArg:
+    bufAppendC('(');
+
+    bufAppendS("PSubstOutArg");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.psubstoutarg_.procsubstout_);
+
+    bufAppendC(')');
+
+    break;
+  case is_AssignArg:
+    bufAppendC('(');
+
+    bufAppendS("AssignArg");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.assignarg_.assign_);
+
+    bufAppendC(')');
+
+    break;
+
+  default:
+    fprintf(stderr, "Error: bad kind field when showing Arg!\n");
+    exit(1);
+  }
+}
+
+void shListArg(ListArg listarg)
+{
+  bufAppendC('[');
+  while(listarg != 0)
+  {
+    if (listarg->listarg_)
+    {
+      shArg(listarg->arg_);
+      bufAppendS(", ");
+      listarg = listarg->listarg_;
+    }
+    else
+    {
+      shArg(listarg->arg_);
+      listarg = 0;
+    }
+  }
+  bufAppendC(']');
+}
+
 void shCommandPart(CommandPart p)
 {
   switch(p->kind)
@@ -971,9 +1237,9 @@ void shCommandPart(CommandPart p)
 
     bufAppendC(' ');
 
-    shIdent(p->u.cmd_.word_);
+    shArg(p->u.cmd_.arg_);
   bufAppendC(' ');
-    shListWord(p->u.cmd_.listword_);
+    shListArg(p->u.cmd_.listarg_);
 
     bufAppendC(')');
 
@@ -1036,7 +1302,23 @@ void shIdent(String s)
   bufAppendC('\"');
 }
 
-void shWord(String s)
+void shArithExp(String s)
+{
+  bufAppendC('\"');
+  bufEscapeS(s);
+  bufAppendC('\"');
+}
+
+
+void shProcSubstIn(String s)
+{
+  bufAppendC('\"');
+  bufEscapeS(s);
+  bufAppendC('\"');
+}
+
+
+void shProcSubstOut(String s)
 {
   bufAppendC('\"');
   bufEscapeS(s);
@@ -1045,6 +1327,14 @@ void shWord(String s)
 
 
 void shAssign(String s)
+{
+  bufAppendC('\"');
+  bufEscapeS(s);
+  bufAppendC('\"');
+}
+
+
+void shWord(String s)
 {
   bufAppendC('\"');
   bufEscapeS(s);

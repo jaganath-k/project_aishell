@@ -22,12 +22,13 @@
  *     python3 -c "import json,sys; [print(m['id']) for m in json.load(sys.stdin)['data']]"
  */
 static const char *MODEL_PRIORITY[] = {
-    "openrouter/free"
+    "google/gemma-3-4b-it:free",               /* free — fast, reliable     */
     "google/gemma-4-31b-it:free",              /* free — 31B, best quality  */
     "meta-llama/llama-3.3-70b-instruct:free",  /* free — 70B, high quality  */
     "meta-llama/llama-3.2-3b-instruct:free",   /* free — small, fast        */
-    "google/gemma-3-4b-it",                    /* $0.04/1M — cheapest paid  */
+    "google/gemma-3-4b-it",                    /* $0.04/1M — paid fallback  */
     "google/gemini-2.5-flash-lite",            /* $0.10/1M — reliable       */
+    //"openrouter/free" ,    
     NULL
 };
 
@@ -119,29 +120,45 @@ static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *userp) {
  * Returns 0 to signal "try next model":
  *   HTTP 404 (model gone), 429 (rate limited), 503 (unavailable),
  *   empty content, or parse failure. */
+/* context is optional (NULL → use original system prompt) */
 static int try_model(const char *api_key, const char *model,
-                     const char *query, AIResponse *resp) {
+                     const char *query, const char *context, AIResponse *resp) {
     char safe_query[2048], safe_model[256];
     json_escape(query, safe_query, sizeof(safe_query));
     json_escape(model, safe_model, sizeof(safe_model));
 
-    char body[4096];
+    /* Build system prompt — prepend RAG context when provided */
+    char sys[4096];
+    if (context && context[0]) {
+        char safe_ctx[2048];
+        json_escape(context, safe_ctx, sizeof(safe_ctx));
+        snprintf(sys, sizeof(sys),
+            "%s\\n\\nYou are a shell command expert. Given the above relevant "
+            "commands and the user query, suggest the best shell command. "
+            "Respond ONLY with JSON: "
+            "{\\\"command\\\": \\\"<the shell command>\\\", "
+            "\\\"explanation\\\": \\\"<one sentence why>\\\"}. "
+            "Never add markdown, never add extra text.", safe_ctx);
+    } else {
+        snprintf(sys, sizeof(sys),
+            "You are a shell command expert. When given a natural language request, "
+            "respond with ONLY a JSON object in this exact format: "
+            "{\\\"command\\\": \\\"<the shell command>\\\", "
+            "\\\"explanation\\\": \\\"<one sentence why>\\\"}. "
+            "Never add markdown, never add extra text.");
+    }
+
+    char body[8192];
     snprintf(body, sizeof(body),
         "{"
           "\"model\":\"%s\","
           "\"max_tokens\":1024,"
           "\"messages\":["
-            "{\"role\":\"system\","
-             "\"content\":\"You are a shell command expert. When given a natural "
-                           "language request, respond with ONLY a JSON object in "
-                           "this exact format: "
-                           "{\\\"command\\\": \\\"<the shell command>\\\", "
-                           "\\\"explanation\\\": \\\"<one sentence why>\\\"}. "
-                           "Never add markdown, never add extra text.\"},"
+            "{\"role\":\"system\",\"content\":\"%s\"},"
             "{\"role\":\"user\",\"content\":\"%s\"}"
           "]"
         "}",
-        safe_model, safe_query);
+        safe_model, sys, safe_query);
 
     char auth_header[512];
     snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
@@ -243,15 +260,9 @@ static int try_model(const char *api_key, const char *model,
 
 /* ── public API ───────────────────────────────────────────────────────────── */
 
-AIResponse openrouter_query(const char *query) {
+static AIResponse query_with_context(const char *query, const char *context) {
     AIResponse resp;
     memset(&resp, 0, sizeof(resp));
-
-    if (!query || query[0] == '\0') {
-        snprintf(resp.error_msg, sizeof(resp.error_msg), "empty query");
-        aishell_log(LOG_AI, "", "", "error-empty-query");
-        return resp;
-    }
 
     const char *api_key = getenv("OPENROUTER_API_KEY");
     if (!api_key || api_key[0] == '\0')
@@ -265,23 +276,22 @@ AIResponse openrouter_query(const char *query) {
         return resp;
     }
 
-    /* AISHELL_MODEL override — skip the priority loop */
+    /* AISHELL_MODEL override — try first, then fall back to priority chain */
     const char *env_model = getenv("AISHELL_MODEL");
     if (env_model && env_model[0] != '\0') {
-        fprintf(stderr, "[openrouter] using model from AISHELL_MODEL: %s\n", env_model);
-        if (try_model(api_key, env_model, query, &resp)) {
+        fprintf(stderr, "[openrouter] trying AISHELL_MODEL: %s\n", env_model);
+        if (try_model(api_key, env_model, query, context, &resp)) {
             aishell_log(LOG_AI, query, resp.suggestion, env_model);
             return resp;
         }
-        fprintf(stderr, "[openrouter] AISHELL_MODEL failed: %s\n", resp.error_msg);
-        aishell_log(LOG_AI, query, "", "error-env-model-failed");
-        return resp;
+        fprintf(stderr, "[openrouter] AISHELL_MODEL failed: %s — falling back to priority chain\n",
+                resp.error_msg);
     }
 
     /* Walk the priority chain */
     for (int i = 0; MODEL_PRIORITY[i] != NULL; i++) {
         fprintf(stderr, "[openrouter] trying model: %s\n", MODEL_PRIORITY[i]);
-        if (try_model(api_key, MODEL_PRIORITY[i], query, &resp)) {
+        if (try_model(api_key, MODEL_PRIORITY[i], query, context, &resp)) {
             aishell_log(LOG_AI, query, resp.suggestion, MODEL_PRIORITY[i]);
             return resp;
         }
@@ -292,12 +302,37 @@ AIResponse openrouter_query(const char *query) {
     snprintf(resp.error_msg, sizeof(resp.error_msg),
         "All models failed or rate limited. Check openrouter.ai/activity");
     fprintf(stderr, "[openrouter] %s\n", resp.error_msg);
-    fprintf(stderr, "[openrouter] Tip: check remaining credits at "
-                    "https://openrouter.ai/credits\n");
+    fprintf(stderr, "[openrouter] Tip: unset AISHELL_MODEL if set to a stale model\n");
     fprintf(stderr, "[openrouter] Tip: see available free models at "
                     "https://openrouter.ai/models?q=:free\n");
     aishell_log(LOG_AI, query, "", "error-all-models-failed");
     return resp;
+}
+
+AIResponse openrouter_query(const char *query) {
+    AIResponse resp;
+    memset(&resp, 0, sizeof(resp));
+
+    if (!query || query[0] == '\0') {
+        snprintf(resp.error_msg, sizeof(resp.error_msg), "empty query");
+        aishell_log(LOG_AI, "", "", "error-empty-query");
+        return resp;
+    }
+
+    return query_with_context(query, NULL);
+}
+
+/* Context-aware variant: prepends RAG context to the system prompt. */
+AIResponse openrouter_query_ctx(const char *query, const char *context) {
+    AIResponse resp;
+    memset(&resp, 0, sizeof(resp));
+
+    if (!query || query[0] == '\0') {
+        snprintf(resp.error_msg, sizeof(resp.error_msg), "empty query");
+        return resp;
+    }
+
+    return query_with_context(query, context);
 }
 
 #else   /* ── stub when libcurl dev headers not available ── */
@@ -317,6 +352,11 @@ AIResponse openrouter_query(const char *query) {
 
     aishell_log(LOG_AI, query ? query : "", "", "error-no-libcurl");
     return resp;
+}
+
+AIResponse openrouter_query_ctx(const char *query, const char *context) {
+    (void)context;
+    return openrouter_query(query);
 }
 
 #endif /* HAVE_CURL */

@@ -1,21 +1,23 @@
 /*
- * AiShell — Week 8 Milestone
+ * AiShell — Week 9 Milestone
  *
- * Parser:    BNFC grammar (Grammar.cf) → LR parser → typed AST (Week 7)
- * Input:     preprocess_arith() → preprocess_cmd_subst() → preprocess_quotes() → psInput() → eval
+ * Parser:    BNFC grammar → LR parser → typed AST                    (Week 7)
+ * Input:     preprocess_arith → preprocess_quotes → psInput          (Week 7)
  *
- * Command execution model:
- *   External commands  → fork/exec              (Week 5)
- *   Built-in commands  → pthread                (Week 6)
- *   @ AI queries       → bnfc_repl() intercept  (Week 8)
+ * Command execution:
+ *   External   → fork/exec                                           (Week 5)
+ *   Built-ins  → pthread                                             (Week 6)
+ *   @ queries  → RAG retrieval → MCP client → LLM                   (Week 8/9)
  *
- * @ command flow (in bnfc_repl(), before psInput):
- *   1. commands.json registry lookup  (local keyword match)
- *   2. MCP server on localhost:9000   (local TCP socket)
- *   3. OpenRouter AI via HTTPS         (internet fallback)
- *   Confirmed command → preprocess_arith → preprocess_quotes → psInput
+ * MCP Server (port 9000):
+ *   FTP protocol  → USER/QUIT/PORT/STOR/RETR/LIST/MKD               (Week 9)
+ *   MCP JSON tools → run_command/list_tools/get_status/get_registry  (Week 9)
+ *   Config         → aishell.conf                                    (Week 9)
  *
- * All @ calls logged to aishell_calls.log
+ * RAG pipeline:
+ *   TF-IDF index → cosine similarity → top-K context → LLM          (Week 9)
+ *
+ * All calls logged to aishell_calls.log
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -33,8 +35,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 
 #include "cmd_spec.h"
+#include "mcp_server.h"
+#include "config.h"
+#include "rag_retriever.h"
 
 /* =========================================================================
  * Constants  (mirrors Token.h / Command.h from the reference)
@@ -69,6 +75,10 @@ typedef struct {
     int    stderr_both;   /* 1 if &> was used (stdout+stderr to same file)  */
     int    background;
     int    pipe_next;
+    /* process substitution child processes to wait for after execution */
+    pid_t  ps_pids[8];
+    int    ps_fds[8];    /* pipe ends to close after outer command finishes */
+    int    ps_count;
 } cmd_t;
 
 /* =========================================================================
@@ -375,6 +385,31 @@ extern void register_edit_show_command(void);
 extern void register_uniq_command(void);
 extern void register_cut_command(void);
 extern void register_tr_command(void);
+extern void register_grep_command(void);
+extern void register_diff_command(void);
+extern void register_tee_command(void);
+extern void register_du_command(void);
+extern void register_df_command(void);
+extern void register_ln_command(void);
+extern void register_chmod_command(void);
+extern void register_chown_command(void);
+extern void register_sleep_command(void);
+extern void register_which_command(void);
+extern void register_true_command(void);
+extern void register_false_command(void);
+extern void register_file_command(void);
+extern void register_md5sum_command(void);
+extern void register_sha256sum_command(void);
+extern void register_alias_command(void);
+extern void register_unalias_command(void);
+extern void register_history_command(void);
+extern void register_ping_command(void);
+extern void register_nc_command(void);
+extern void register_xargs_command(void);
+extern void register_read_command(void);
+extern void register_test_command(void);
+extern void register_bracket_command(void);
+extern void register_server_command(void);
 
 static void register_all_commands(void) {
     register_ls_command();
@@ -412,6 +447,31 @@ static void register_all_commands(void) {
     register_uniq_command();
     register_cut_command();
     register_tr_command();
+    register_grep_command();
+    register_diff_command();
+    register_tee_command();
+    register_du_command();
+    register_df_command();
+    register_ln_command();
+    register_chmod_command();
+    register_chown_command();
+    register_sleep_command();
+    register_which_command();
+    register_true_command();
+    register_false_command();
+    register_file_command();
+    register_md5sum_command();
+    register_sha256sum_command();
+    register_alias_command();
+    register_unalias_command();
+    register_history_command();
+    register_ping_command();
+    register_nc_command();
+    register_xargs_command();
+    register_read_command();
+    register_test_command();
+    register_bracket_command();
+    register_server_command();
 }
 
 /* =========================================================================
@@ -647,24 +707,43 @@ static int lsh_exit(cmd_t *cmd) {
     exit(code);
 }
 
+typedef struct { int count; } HelpCbState;
+
+static void help_print_one(const cmd_spec_t *spec, void *ud) {
+    HelpCbState *s = (HelpCbState *)ud;
+    s->count++;
+    printf("  %-22s %s\n", spec->name,
+           spec->summary ? spec->summary : "");
+}
+
 static int lsh_help(cmd_t *cmd) {
     (void)cmd;
-    printf("aishell — available built-in commands:\n");
-    printf("  cd [DIR]     change working directory (default: HOME)\n");
-    printf("  exit [N]     exit the shell with code N (default 0)\n");
-    printf("  help         show this message\n");
-    printf("  jobs               list background jobs\n");
-    printf("  kill [-SIG] %%N    send signal to job N (default: SIGTERM)\n");
-    printf("  kill [-SIG] PID   send signal to PID directly\n");
-    printf("  prompt STR        change the prompt string for this session\n");
-    printf("\nRegistered commands (32 total) — run <cmd> --help for details.\n");
-    printf("External programs on PATH are also supported.\n");
-    printf("Append & to any command to run it in the background.\n");
-    printf("\nAI-assisted commands (Week 8):\n");
-    printf("  @ <query>    Natural language: checks registry → MCP server → Claude AI\n");
-    printf("  @ list       List all commands.json registry entries\n");
-    printf("  @ log        Show recent call log (aishell_calls.log)\n");
-    printf("  @ help       Show @ usage and flow\n");
+    printf("aishell — shell built-ins:\n");
+    printf("  %-22s %s\n", "cd [DIR]",          "change working directory (default: HOME)");
+    printf("  %-22s %s\n", "exit [N]",          "exit with code N (default 0)");
+    printf("  %-22s %s\n", "help",              "show this message");
+    printf("  %-22s %s\n", "jobs",              "list background jobs");
+    printf("  %-22s %s\n", "kill [-SIG] %N|PID","send signal to job or PID");
+    printf("  %-22s %s\n", "prompt STR",        "change the prompt for this session");
+
+    printf("\nRegistered commands (run <cmd> --help for usage, --help-json for JSON schema):\n");
+    HelpCbState s = {0};
+    for_each_command(help_print_one, &s);
+    printf("\n  %d commands total.\n", s.count);
+
+    printf("\nAI assistant:\n");
+    printf("  %-22s %s\n", "@ <query>",  "natural language → shell command (RAG + AI)");
+    printf("  %-22s %s\n", "@ list",     "list all commands.json registry entries");
+    printf("  %-22s %s\n", "@ log",      "show recent AI call log");
+    printf("  %-22s %s\n", "@ help",     "show @ usage and flow");
+
+    printf("\nServer (port 9000 — FTP + MCP JSON):\n");
+    printf("  %-22s %s\n", "server status",       "show server running state");
+    printf("  %-22s %s\n", "server start/stop",   "start or stop the server");
+    printf("  %-22s %s\n", "server config [k=v]", "show or update aishell.conf");
+
+    printf("\nExternal programs on PATH are also supported.\n");
+    printf("Append & to run any command in the background.\n");
     return 0;
 }
 
@@ -857,11 +936,20 @@ static void *bg_builtin_thread_fn(void *arg) {
     pthread_cleanup_push(bg_builtin_cleanup, bta);
 
     const char *name = cmd_basename(bta->base.cmd->argv[0]);
+    int dispatched = 0;
     for (int i = 0; builtin_str[i] != NULL; i++) {
         if (strcmp(name, builtin_str[i]) == 0) {
             bta->base.result = builtin_func[i](bta->base.cmd);
             result = bta->base.result;
+            dispatched = 1;
             break;
+        }
+    }
+    if (!dispatched) {
+        const cmd_spec_t *spec = find_command(name);
+        if (spec) {
+            bta->base.result = spec->run(bta->base.cmd->argc, bta->base.cmd->argv);
+            result = bta->base.result;
         }
     }
 
@@ -1017,8 +1105,41 @@ static int lsh_execute(cmd_t *cmd) {
 
     /* Layer 2 — aishell registered commands (registry.c) */
     const cmd_spec_t *spec = find_command(name);
-    if (spec)
+    if (spec) {
+        if (cmd->background) {
+            char cmdstr[256] = "";
+            for (int j = 0; j < cmd->argc; j++) {
+                if (j) strncat(cmdstr, " ", sizeof(cmdstr)-strlen(cmdstr)-1);
+                strncat(cmdstr, cmd->argv[j], sizeof(cmdstr)-strlen(cmdstr)-1);
+            }
+            bg_thread_args_t *bta = malloc(sizeof(bg_thread_args_t));
+            if (!bta) { perror("aishell: malloc"); return 1; }
+            bta->base.cmd = cmd_dup(cmd);
+            if (!bta->base.cmd) { free(bta); return 1; }
+            bta->base.result = 0;
+            bta->cmd_owned   = 1;
+            int jid = jobs_reserve_thread_slot(cmdstr);
+            if (jid < 0) { cmd_free(bta->base.cmd); free(bta); return 1; }
+            bta->job_id = jid;
+            pthread_t tid;
+            int rc = pthread_create(&tid, NULL, bg_builtin_thread_fn, bta);
+            if (rc != 0) {
+                fprintf(stderr, "aishell: pthread_create: %s\n", strerror(rc));
+                pthread_mutex_lock(&job_table_mutex);
+                for (int k = 0; k < MAX_JOBS; k++) {
+                    if (job_table[k].id == jid) job_table[k].job_type = JOB_TYPE_NONE;
+                }
+                pthread_mutex_unlock(&job_table_mutex);
+                cmd_free(bta->base.cmd); free(bta);
+                return 1;
+            }
+            jobs_set_thread_tid(jid, tid);
+            printf("[%d] (thread)\n", jid);
+            fflush(stdout);
+            return 0;
+        }
         return spec->run(cmd->argc, cmd->argv);
+    }
 
     /* Layer 3 — external program: fork + execvp */
     return lsh_launch(cmd);
@@ -1916,7 +2037,36 @@ int main(int argc, char **argv) {
         return 127;
     }
 
-    /* Mode 2.5 — --commands-json: emit full command catalog as JSON (week7)
+    /* Mode 2.5a — --server: start MCP/FTP server daemon (no REPL).
+     * Used by test scripts and systemd-style invocations.
+     * Exits cleanly on SIGTERM or SIGINT. */
+    if (argc > 1 && strcmp(argv[1], "--server") == 0) {
+#ifdef USE_BNFC
+        config_load("aishell.conf");
+        if (g_config.rag_enabled) rag_build_index();
+        if (mcp_server_start() != 0) {
+            fprintf(stderr, "[aishell] --server: could not start MCP server\n");
+            return 1;
+        }
+        fprintf(stderr, "[aishell] --server: MCP/FTP server running on port %d\n",
+                g_config.server_port);
+        /* Block until SIGTERM or SIGINT */
+        sigset_t wait_set;
+        sigemptyset(&wait_set);
+        sigaddset(&wait_set, SIGTERM);
+        sigaddset(&wait_set, SIGINT);
+        sigprocmask(SIG_BLOCK, &wait_set, NULL);
+        int sig = 0;
+        sigwait(&wait_set, &sig);
+        mcp_server_stop();
+        fprintf(stderr, "[aishell] --server: received signal %d, exiting\n", sig);
+#else
+        fprintf(stderr, "aishell: --server requires USE_BNFC build\n");
+#endif
+        return 0;
+    }
+
+    /* Mode 2.5b — --commands-json: emit full command catalog as JSON (week7)
      * Seed commands.json with:  ./aishell --commands-json > commands_seed.json
      * Then manually add aliases[], command, and category fields to each entry. */
     if (argc > 1 && strcmp(argv[1], "--commands-json") == 0) {
@@ -1952,7 +2102,24 @@ int main(int argc, char **argv) {
             fprintf(stderr,
                 "[aishell] No commands.json — @ will use MCP/Claude only.\n");
     }
+
+    /* Week 9: load config, build RAG index, then start MCP/FTP server thread */
+    config_load("aishell.conf");
+    if (g_config.rag_enabled) {
+        int rag_docs = rag_build_index();
+        if (rag_docs > 0)
+            fprintf(stderr, "[aishell] RAG index built: %d documents\n", rag_docs);
+    }
+    if (g_config.server_enabled) {
+        if (mcp_server_start() == 0)
+            fprintf(stderr, "[aishell] MCP server started on port %d\n",
+                    g_config.server_port);
+        else
+            fprintf(stderr, "[aishell] Warning: could not start MCP server\n");
+    }
+
     bnfc_repl();
+    mcp_server_stop();
 #else
     shell_repl();
 #endif
@@ -1988,6 +2155,7 @@ int main(int argc, char **argv) {
 typedef struct { const char *p; } AParser;
 
 /* Forward declarations — functions are defined before their callees. */
+static long arith_eval(const char *expr_start, const char **endp);
 static long ap_expr  (AParser *a);
 static long ap_term  (AParser *a);
 static long ap_factor(AParser *a);
@@ -2009,7 +2177,147 @@ static int  bnfc_run_cmd(cmd_t *cmd);
 static struct { char name[64]; char value[256]; } var_store[MAX_VARS];
 static int var_count      = 0;
 static int  g_last_status   = 0;          /* tracks $? — exit status of last job */
+static int  g_break_flag    = 0;          /* set by BreakStmt; cleared by loop handler */
+static int  g_continue_flag = 0;          /* set by ContStmt;  cleared by loop handler */
 static char g_bnfc_prompt[256] = "jshell% "; /* prompt string shared with execute_command */
+
+/* ── Alias table (accessible from cmd_alias.c via extern) ─────────────── */
+#define ALIAS_MAX 64
+typedef struct { char name[64]; char value[256]; } Alias;
+Alias alias_table[ALIAS_MAX];
+int   alias_count = 0;
+
+void alias_set(const char *name, const char *value) {
+    for (int i = 0; i < alias_count; i++) {
+        if (strcmp(alias_table[i].name, name) == 0) {
+            strncpy(alias_table[i].value, value, sizeof(alias_table[0].value) - 1);
+            return;
+        }
+    }
+    if (alias_count < ALIAS_MAX) {
+        strncpy(alias_table[alias_count].name,  name,  sizeof(alias_table[0].name)  - 1);
+        strncpy(alias_table[alias_count].value, value, sizeof(alias_table[0].value) - 1);
+        alias_count++;
+    }
+}
+
+const char *alias_get(const char *name) {
+    for (int i = 0; i < alias_count; i++)
+        if (strcmp(alias_table[i].name, name) == 0)
+            return alias_table[i].value;
+    return NULL;
+}
+
+void alias_del(const char *name) {
+    for (int i = 0; i < alias_count; i++) {
+        if (strcmp(alias_table[i].name, name) == 0) {
+            alias_table[i] = alias_table[alias_count - 1];
+            alias_count--;
+            return;
+        }
+    }
+}
+
+void alias_print_all(FILE *out) {
+    for (int i = 0; i < alias_count; i++)
+        fprintf(out, "alias %s='%s'\n", alias_table[i].name, alias_table[i].value);
+}
+
+/* ── Command history (accessible from cmd_history.c via extern) ─────── */
+#define HIST_MAX  100
+#define HIST_LINE 1024
+static char g_hist[HIST_MAX][HIST_LINE];
+static int  g_hist_tail = 0;   /* index where next entry will be written */
+static int  g_hist_used = 0;   /* entries currently stored (≤ HIST_MAX)  */
+
+void hist_add(const char *line) {
+    if (!line || !line[0]) return;
+    /* skip consecutive duplicates */
+    if (g_hist_used > 0) {
+        int last = (g_hist_tail - 1 + HIST_MAX) % HIST_MAX;
+        if (strcmp(g_hist[last], line) == 0) return;
+    }
+    strncpy(g_hist[g_hist_tail], line, HIST_LINE - 1);
+    g_hist[g_hist_tail][HIST_LINE - 1] = '\0';
+    g_hist_tail = (g_hist_tail + 1) % HIST_MAX;
+    if (g_hist_used < HIST_MAX) g_hist_used++;
+}
+
+/* i = 0 → oldest entry, i = g_hist_used-1 → most recent */
+const char *hist_get(int i) {
+    if (i < 0 || i >= g_hist_used) return "";
+    int start = (g_hist_tail - g_hist_used + 2 * HIST_MAX) % HIST_MAX;
+    return g_hist[(start + i) % HIST_MAX];
+}
+
+int  hist_total(void)    { return g_hist_used; }
+void hist_clear_all(void){ g_hist_tail = 0; g_hist_used = 0; }
+
+/* Intercept alias/unalias lines that contain '=' or single-quotes before BNFC.
+ * BNFC lexes NAME=VALUE as an Assign token, so those args never reach alias_run.
+ * Lines with no '=' or '\'' (e.g. "alias", "alias ll", "alias --help-json") return
+ * 0 and are parsed by BNFC normally.
+ * Returns 1 if the line was handled (caller should skip BNFC); 0 otherwise. */
+static int try_handle_alias_define(const char *buf, int *rc_out)
+{
+    const char *p = buf;
+    while (*p == ' ') p++;
+
+    int is_alias   = (strncmp(p,"alias",  5) == 0 && (p[5] == '\0' || p[5] == ' '));
+    int is_unalias = (!is_alias &&
+                      strncmp(p,"unalias",7) == 0 && (p[7] == '\0' || p[7] == ' '));
+    if (!is_alias && !is_unalias) return 0;
+
+    p += is_alias ? 5 : 7;
+    while (*p == ' ') p++;
+
+    /* Only handle directly when '=' or '\'' appears (BNFC can't handle those) */
+    int needs_direct = 0;
+    for (const char *q = p; *q; q++)
+        if (*q == '=' || *q == '\'') { needs_direct = 1; break; }
+    if (!needs_direct) return 0;
+
+    if (is_unalias) {
+        int rc = 0;
+        while (*p) {
+            while (*p == ' ') p++;
+            if (!*p) break;
+            char name[64] = ""; int ni = 0;
+            while (*p && *p != ' ' && ni < 63) name[ni++] = *p++;
+            name[ni] = '\0';
+            if (!name[0]) break;
+            if (!alias_get(name)) { fprintf(stderr, "unalias: %s: not found\n", name); rc = 1; }
+            else                    alias_del(name);
+        }
+        *rc_out = rc; return 1;
+    }
+
+    /* alias */
+    if (!*p) { alias_print_all(stdout); *rc_out = 0; return 1; }
+    int rc = 0;
+    while (*p) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        /* Parse one argument — handle single and double quotes */
+        char arg[512] = ""; int ai = 0; char quote = 0;
+        while (*p && (*p != ' ' || quote)) {
+            if (!quote && (*p == '\'' || *p == '"')) { quote = *p++; continue; }
+            if (quote  && *p == quote)                { quote = 0;   p++;  continue; }
+            if (ai < 511) arg[ai++] = *p;
+            p++;
+        }
+        arg[ai] = '\0';
+        if (!arg[0]) break;
+        char *eq = strchr(arg, '=');
+        if (eq) { *eq = '\0'; alias_set(arg, eq + 1); }
+        else {
+            const char *val = alias_get(arg);
+            if (val) printf("alias %s='%s'\n", arg, val);
+            else { fprintf(stderr, "alias: %s: not found\n", arg); rc = 1; }
+        }
+    }
+    *rc_out = rc; return 1;
+}
 
 /* Forward declare execute_command (defined earlier in this file, before #ifdef) */
 static int execute_command(cmd_t *cmd, char *prompt, size_t prompt_sz);
@@ -2057,7 +2365,14 @@ static char *expand_vars(const char *word) {
         if (*p == '$') {
             p++;
             char tmp[64];
-            if (*p == '?') {
+            if (*p == '(' && *(p+1) == '(') {
+                /* $((expr)) — arithmetic expansion at runtime */
+                const char *endp;
+                long val = arith_eval(p + 2, &endp);
+                snprintf(tmp, sizeof(tmp), "%ld", val);
+                strncat(buf, tmp, sizeof(buf) - strlen(buf) - 1);
+                p = endp;
+            } else if (*p == '?') {
                 /* $? — last exit status */
                 snprintf(tmp, sizeof(tmp), "%d", g_last_status);
                 strncat(buf, tmp, sizeof(buf) - strlen(buf) - 1);
@@ -2215,7 +2530,30 @@ static long arith_eval(const char *expr_start, const char **endp) {
     return result;
 }
 
+/* Return 1 if the $((expr)) starting at expr_start contains letter chars
+ * (variable references). Used to decide between eager vs. runtime eval. */
+static int arith_has_vars(const char *expr_start) {
+    const char *p = expr_start;
+    int depth = 0;
+    while (*p) {
+        if (*p == '(') { depth++; p++; }
+        else if (*p == ')') {
+            if (depth == 0 && *(p+1) == ')') break;
+            depth--; p++;
+        } else {
+            if (isalpha((unsigned char)*p)) return 1;
+            p++;
+        }
+    }
+    return 0;
+}
+
 /* Scan line for $((expr)) patterns and substitute numeric results.
+ * Pure-constant expressions (no variable refs) are evaluated eagerly so that
+ * they survive the BNFC lexer as Word tokens.
+ * Expressions containing variable references are left intact so that the
+ * runtime expand_vars() can evaluate them with the current variable values
+ * (important for loop bodies like i=$((i+1))).
  * Returns a heap-alloc'd string the caller must free. */
 static char *preprocess_arith(const char *line) {
     /* Worst case: every char becomes a large number string */
@@ -2226,11 +2564,17 @@ static char *preprocess_arith(const char *line) {
 
     for (const char *p = line; *p; ) {
         if (p[0] == '$' && p[1] == '(' && p[2] == '(') {
-            const char *endp;
-            long val = arith_eval(p + 3, &endp);
-            int n = snprintf(o, sz - (size_t)(o - out), "%ld", val);
-            o += n;
-            p = endp;
+            if (arith_has_vars(p + 3)) {
+                /* Has variable refs — leave intact for runtime expand_vars */
+                *o++ = *p++;
+            } else {
+                /* Pure constant — evaluate eagerly (survives BNFC lexer) */
+                const char *endp;
+                long val = arith_eval(p + 3, &endp);
+                int n = snprintf(o, sz - (size_t)(o - out), "%ld", val);
+                o += n;
+                p = endp;
+            }
         } else {
             *o++ = *p++;
         }
@@ -2329,16 +2673,62 @@ static char *preprocess_cmd_subst(const char *line) {
  * After parsing, expand_and_unquote() converts ` back to space.
  * Limitation: nested quotes and \" escape sequences are not handled.
  */
+/* preprocess_loop_syntax — remove ';' immediately before loop/block keywords.
+ *
+ * Transforms bash-style "...; do", "...; done", "...; fi", "...; then" etc.
+ * into "... do", "... done" etc. so the BNFC grammar (which has no optional
+ * semicolon before these keywords) can parse them.
+ *
+ * A ';' followed by optional spaces and then one of the keywords
+ *   do  done  fi  then  else  elif
+ * is replaced by a single space + the keyword.
+ * All other ';' characters are preserved unchanged.
+ */
+static char *preprocess_loop_syntax(const char *s) {
+    static const char *kws[] = { "done", "do", "elif", "else", "fi", "then", NULL };
+    size_t n = strlen(s);
+    char *out = malloc(n + 1);
+    if (!out) return strdup(s);
+    char *dst = out;
+    const char *src = s;
+    while (*src) {
+        if (*src == ';') {
+            const char *p = src + 1;
+            while (*p == ' ') p++;
+            int matched = 0;
+            for (int i = 0; kws[i]; i++) {
+                size_t klen = strlen(kws[i]);
+                if (strncmp(p, kws[i], klen) == 0) {
+                    char after = p[klen];
+                    if (after == '\0' || after == ' ' || after == ';') {
+                        matched = 1;
+                        *dst++ = ' ';  /* replace ';' with space before keyword */
+                        src = p;       /* skip ';' and spaces; emit keyword next */
+                        break;
+                    }
+                }
+            }
+            if (!matched) *dst++ = *src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+    return out;
+}
+
 static char *preprocess_quotes(const char *line) {
     char *buf = malloc(strlen(line) + 1);
     if (!buf) return strdup(line);
-    char *out    = buf;
-    int   in_q   = 0;
+    char *out   = buf;
+    char  in_q  = 0;   /* '\0' = not quoted, '"' = double-quoted, '\'' = single-quoted */
     for (const char *p = line; *p; p++) {
-        if (*p == '"') {
-            in_q = !in_q;   /* toggle; strip the " itself */
+        if (!in_q && (*p == '"' || *p == '\'')) {
+            in_q = *p;          /* enter quoted region, strip opening quote */
+        } else if (in_q && *p == in_q) {
+            in_q = 0;           /* exit quoted region, strip closing quote */
         } else if (*p == ' ' && in_q) {
-            *out++ = '`';   /* space inside quote → placeholder */
+            *out++ = '`';       /* space inside quotes → placeholder */
         } else {
             *out++ = *p;
         }
@@ -2402,22 +2792,102 @@ static int append_word_glob(char **argv, int argc, const char *word) {
     return argc;
 }
 
+/* Expand one Arg node to a heap-alloc'd string, ready for argv[].
+ * For process-substitution args, also forks the inner command and records
+ * the child pid/fd in cmd so the caller can clean up after execution. */
+static char *expand_arg_ps(Arg arg, cmd_t *cmd) {
+    switch (arg->kind) {
+    case is_ArithArg:
+        return expand_vars(arg->u.aritharg_.arithexp_);
+
+    case is_PSubstInArg: {
+        /* <(inner_cmd) — inner runs with stdout→pipe write end;
+         * outer command gets /proc/self/fd/<read end> */
+        const char *tok = arg->u.psubstinarg_.procsubstin_;
+        size_t tlen = strlen(tok);
+        char inner[1024];
+        size_t ilen = (tlen > 3) ? tlen - 3 : 0;
+        if (ilen >= sizeof(inner)) ilen = sizeof(inner) - 1;
+        memcpy(inner, tok + 2, ilen);  /* strip "<(" prefix */
+        inner[ilen] = '\0';            /* strip ")" suffix */
+
+        int pfd[2];
+        if (pipe(pfd) < 0 || cmd->ps_count >= 8) return strdup("/dev/null");
+        pid_t pid = fork();
+        if (pid == 0) {
+            close(pfd[0]);
+            dup2(pfd[1], STDOUT_FILENO);
+            close(pfd[1]);
+            execl("/bin/sh", "sh", "-c", inner, NULL);
+            _exit(127);
+        }
+        close(pfd[1]);
+        int i = cmd->ps_count++;
+        cmd->ps_pids[i] = pid;
+        cmd->ps_fds[i]  = pfd[0];
+        char *path = malloc(32);
+        snprintf(path, 32, "/proc/self/fd/%d", pfd[0]);
+        return path;
+    }
+
+    case is_PSubstOutArg: {
+        /* >(inner_cmd) — inner runs with stdin←pipe read end;
+         * outer command gets /proc/self/fd/<write end> */
+        const char *tok = arg->u.psubstoutarg_.procsubstout_;
+        size_t tlen = strlen(tok);
+        char inner[1024];
+        size_t ilen = (tlen > 3) ? tlen - 3 : 0;
+        if (ilen >= sizeof(inner)) ilen = sizeof(inner) - 1;
+        memcpy(inner, tok + 2, ilen);  /* strip ">(" prefix */
+        inner[ilen] = '\0';            /* strip ")" suffix */
+
+        int pfd[2];
+        if (pipe(pfd) < 0 || cmd->ps_count >= 8) return strdup("/dev/null");
+        pid_t pid = fork();
+        if (pid == 0) {
+            close(pfd[1]);
+            dup2(pfd[0], STDIN_FILENO);
+            close(pfd[0]);
+            execl("/bin/sh", "sh", "-c", inner, NULL);
+            _exit(127);
+        }
+        close(pfd[0]);
+        int i = cmd->ps_count++;
+        cmd->ps_pids[i] = pid;
+        cmd->ps_fds[i]  = pfd[1];
+        char *path = malloc(32);
+        snprintf(path, 32, "/proc/self/fd/%d", pfd[1]);
+        return path;
+    }
+
+    case is_AssignArg:
+        /* NAME=VALUE passed as a command argument (e.g. "server config key=val").
+         * Treat it as a literal string — do not perform variable assignment. */
+        return expand_and_unquote(arg->u.assignarg_.assign_);
+
+    default: /* is_WrdArg */
+        return expand_and_unquote(arg->u.wrdarg_.word_);
+    }
+}
+
 /* ── AST walker: CommandPart → fill one cmd_t ────────────────────────────── */
 
 static void eval_cmdpart(CommandPart cp, cmd_t *cmd) {
     char **argv = malloc(((size_t)BNFC_MAX_ARGS + 1) * sizeof(char *));
     int    argc = 0;
 
-    /* First word is the command name — expand vars but not globs */
-    argv[argc++] = expand_and_unquote(cp->u.cmd_.word_);
+    cmd->ps_count = 0;
 
-    /* Remaining words: expand vars then apply glob */
-    ListWord lw = cp->u.cmd_.listword_;
-    while (lw && argc < BNFC_MAX_ARGS) {
-        char *expanded = expand_and_unquote(lw->word_);
+    /* First arg is the command name — expand vars but not globs */
+    argv[argc++] = expand_arg_ps(cp->u.cmd_.arg_, cmd);
+
+    /* Remaining args: expand vars then apply glob */
+    ListArg la = cp->u.cmd_.listarg_;
+    while (la && argc < BNFC_MAX_ARGS) {
+        char *expanded = expand_arg_ps(la->arg_, cmd);
         argc = append_word_glob(argv, argc, expanded);
         free(expanded);
-        lw = lw->listword_;
+        la = la->listarg_;
     }
     argv[argc] = NULL;
 
@@ -2504,6 +2974,11 @@ static void free_bnfc_cmds(cmd_t *cmds, int n) {
         free(cmds[i].stdin_file);
         free(cmds[i].stdout_file);
         free(cmds[i].stderr_file);
+        /* Close pipe ends and reap process-substitution children */
+        for (int j = 0; j < cmds[i].ps_count; j++) {
+            if (cmds[i].ps_fds[j] >= 0) close(cmds[i].ps_fds[j]);
+            if (cmds[i].ps_pids[j] > 0)  waitpid(cmds[i].ps_pids[j], NULL, 0);
+        }
     }
 }
 
@@ -2613,6 +3088,9 @@ static int eval_condition(Condition cond) {
 
 /* ── eval_job ───────────────────────────────────────────────────────────────*/
 static int eval_job(Job job) {
+    /* Propagate break/continue through nested constructs */
+    if (g_break_flag || g_continue_flag) return 0;
+
     switch (job->kind) {
 
     case is_OneJobFG: {
@@ -2663,6 +3141,71 @@ static int eval_job(Job job) {
         return 0;
     }
 
+    case is_ForStmt: {
+        /* for VAR in WORDS do BODY done */
+        char *varname = expand_and_unquote(job->u.forstmt_.word_);
+        ListWord lw   = job->u.forstmt_.listword_;
+        int ret = 0;
+        while (lw) {
+            char *val = expand_and_unquote(lw->word_);
+            setenv(varname, val, 1);
+            var_set(varname, val);
+            free(val);
+
+            ListJob body = job->u.forstmt_.listjob_;
+            while (body) {
+                ret = eval_job(body->job_);
+                body = body->listjob_;
+                if (g_break_flag || g_continue_flag) break;
+            }
+            if (g_break_flag)    { g_break_flag = 0; break; }
+            if (g_continue_flag) { g_continue_flag = 0; }
+            lw = lw->listword_;
+        }
+        free(varname);
+        return ret;
+    }
+
+    case is_WhileStmt: {
+        /* while Condition do BODY done */
+        int ret = 0;
+        while (eval_condition(job->u.whilestmt_.condition_) == 0) {
+            ListJob body = job->u.whilestmt_.listjob_;
+            while (body) {
+                ret = eval_job(body->job_);
+                body = body->listjob_;
+                if (g_break_flag || g_continue_flag) break;
+            }
+            if (g_break_flag)    { g_break_flag = 0; break; }
+            if (g_continue_flag) { g_continue_flag = 0; }
+        }
+        return ret;
+    }
+
+    case is_UntilStmt: {
+        /* until Condition do BODY done */
+        int ret = 0;
+        while (eval_condition(job->u.untilstmt_.condition_) != 0) {
+            ListJob body = job->u.untilstmt_.listjob_;
+            while (body) {
+                ret = eval_job(body->job_);
+                body = body->listjob_;
+                if (g_break_flag || g_continue_flag) break;
+            }
+            if (g_break_flag)    { g_break_flag = 0; break; }
+            if (g_continue_flag) { g_continue_flag = 0; }
+        }
+        return ret;
+    }
+
+    case is_BreakStmt:
+        g_break_flag = 1;
+        return 0;
+
+    case is_ContStmt:
+        g_continue_flag = 1;
+        return 0;
+
     default:
         return 1;
     }
@@ -2687,21 +3230,9 @@ static int eval_input(Input ast) {
  *   preprocess_arith() → preprocess_quotes() → psInput() → eval_input()
  */
 
-/* Execute a confirmed shell command string through the full BNFC pipeline. */
-static int at_execute_confirmed(const char *cmd) {
-    char *after_arith = preprocess_arith(cmd);
-    char *after_subst = preprocess_cmd_subst(after_arith);
-    free(after_arith);
-    char *processed   = preprocess_quotes(after_subst);
-    free(after_subst);
-    Input ast = psInput(processed);
-    free(processed);
-    if (!ast) {
-        fprintf(stderr, "aishell: parse error in suggested command: %s\n", cmd);
-        return 1;
-    }
-    return eval_input(ast);
-}
+/* AI-suggested commands run via at_execute_direct() → system() → /bin/sh.
+ * This handles arbitrary LLM output including #, multi-line strings, and
+ * shell syntax that the BNFC Word token charset does not cover. */
 
 /* Execute a registry command directly via /bin/sh.
  * Registry commands are pre-validated strings that may use shell syntax
@@ -2711,6 +3242,46 @@ static int at_execute_direct(const char *cmd) {
     int ret = system(cmd);
     if (ret == -1) return 1;
     return WIFEXITED(ret) ? WEXITSTATUS(ret) : 1;
+}
+
+/* Replace {placeholder} tokens interactively.
+ * Returns heap-allocated filled string (caller must free), or NULL on error.
+ * If no placeholders exist, returns strdup(cmd). */
+static char *fill_placeholders(const char *cmd) {
+    if (!strchr(cmd, '{')) return strdup(cmd);
+
+    char result[1024];
+    strncpy(result, cmd, sizeof(result) - 1);
+    result[sizeof(result) - 1] = '\0';
+
+    char *open;
+    while ((open = strchr(result, '{')) != NULL) {
+        char *close = strchr(open, '}');
+        if (!close) break;
+
+        /* Extract name between { and } */
+        char name[64];
+        size_t namelen = (size_t)(close - open - 1);
+        if (namelen >= sizeof(name)) namelen = sizeof(name) - 1;
+        memcpy(name, open + 1, namelen);
+        name[namelen] = '\0';
+
+        fprintf(stdout, "  Enter value for {%s}: ", name);
+        fflush(stdout);
+        char val[512] = "";
+        if (!fgets(val, sizeof(val), stdin)) return NULL;
+        size_t vlen = strlen(val);
+        if (vlen > 0 && val[vlen - 1] == '\n') val[--vlen] = '\0';
+
+        /* Substitute {name} → val */
+        char tmp[1024];
+        size_t prefix = (size_t)(open - result);
+        snprintf(tmp, sizeof(tmp), "%.*s%s%s",
+                 (int)prefix, result, val, close + 1);
+        strncpy(result, tmp, sizeof(result) - 1);
+        result[sizeof(result) - 1] = '\0';
+    }
+    return strdup(result);
 }
 
 /* Return 1 if cmd contains a destructive operation. */
@@ -2809,37 +3380,138 @@ static int handle_at_query(const char *raw) {
         fprintf(stdout, "  @ help   show this help\n");
         return 0;
     }
+
+    /* ── Capability meta-questions — answer locally, no AI needed ── */
+    {
+        char qlower[1024];
+        for (size_t i = 0; i < sizeof(qlower) - 1 && query[i]; i++)
+            qlower[i] = (char)((query[i] >= 'A' && query[i] <= 'Z')
+                               ? query[i] + 32 : query[i]);
+        qlower[strlen(query)] = '\0';
+
+        /* Detect capability/help intent by presence of key signal words.
+         * Phrase-matching misses word-order variants; keyword signals are robust. */
+        int has_cmd_word  = strstr(qlower, "command")    != NULL ||
+                            strstr(qlower, "support")    != NULL ||
+                            strstr(qlower, "feature")    != NULL ||
+                            strstr(qlower, "capabilit")  != NULL ||
+                            strstr(qlower, "do you")     != NULL ||
+                            strstr(qlower, "can you")    != NULL ||
+                            strstr(qlower, "can i")      != NULL ||
+                            strstr(qlower, "available")  != NULL;
+        int has_q_word    = strstr(qlower, "what")  != NULL ||
+                            strstr(qlower, "which")  != NULL ||
+                            strstr(qlower, "show")   != NULL ||
+                            strstr(qlower, "list")   != NULL ||
+                            strstr(qlower, "help")   != NULL ||
+                            strstr(qlower, "how")    != NULL ||
+                            strstr(qlower, "tell")   != NULL ||
+                            strstr(qlower, "are")    != NULL;
+        int is_capability_q = has_cmd_word && has_q_word;
+
+        if (is_capability_q) {
+            HelpCbState hcs = {0};
+            fprintf(stdout, "AiShell — registered commands:\n");
+            for_each_command(help_print_one, &hcs);
+            fprintf(stdout,
+                "\n  %d commands total. Run <cmd> --help for usage.\n"
+                "\n"
+                "Shell built-ins:  cd, exit, help, jobs, kill, prompt\n"
+                "\n"
+                "Shell features:\n"
+                "  Pipelines (|), redirection (> >> < 2>), background (&)\n"
+                "  Variables ($VAR), arithmetic ($((expr))), command substitution $(cmd)\n"
+                "  Process substitution <(cmd) >(cmd)\n"
+                "  if/elif/else/fi, for/do/done, while, until, break, continue\n"
+                "  Single and double quoted strings, key=value arguments\n"
+                "\n"
+                "@ AI assistant (natural language → shell command):\n"
+                "  @ <query>   RAG lookup → MCP server → OpenRouter AI\n"
+                "  @ list      list commands.json entries\n"
+                "  @ log       show recent AI call log\n"
+                "\n"
+                "MCP/FTP server on port 9000 (server start/stop/status/config)\n",
+                hcs.count);
+            return 0;
+        }
+    }
+
     if (strncmp(query, "log", 3) == 0 &&
             (query[3] == '\0' || query[3] == ' ')) {
         at_show_log();
         return 0;
     }
 
-    /* ── STEP B: registry lookup (local, no network) ── */
-    RegistryEntry *entry = registry_lookup(query);
-    if (entry != NULL) {
-        fprintf(stdout, "[registry] Matched: %s\n", entry->description);
+    /* ── STEP B: RAG-powered registry lookup ── */
+    char *rag_context = NULL;
 
-        char *cmd      = NULL;
-        int   cmd_heap = 0;   /* 1 if cmd was malloc'd and needs free() */
-        if (entry->requires_arg) {
-            cmd = registry_build_command(entry, query);
-            if (!cmd) return 1;   /* build_command printed a usage hint */
-            cmd_heap = 1;
+    if (g_config.rag_enabled) {
+        RagResult rag_results[RAG_TOP_K];
+        int rag_count = rag_query(query, rag_results, RAG_TOP_K);
+
+        if (rag_count > 0 && rag_results[0].score >= 0.5f) {
+            /* High-confidence match — treat like a direct registry hit */
+            fprintf(stdout, "[rag] Top match (score=%.2f): %s\n",
+                    (double)rag_results[0].score, rag_results[0].description);
+            const char *cmd_template = rag_results[0].command;
+            fprintf(stdout, "[command]  %s\n", cmd_template);
+            for (int ri = 1; ri < rag_count; ri++)
+                fprintf(stdout, "[rag] Also relevant: %s (%.2f)\n",
+                        rag_results[ri].description,
+                        (double)rag_results[ri].score);
+
+            /* Fill {placeholder} tokens before confirming/executing */
+            char *cmd = fill_placeholders(cmd_template);
+            if (!cmd) { free(rag_context); return 1; }
+            if (strcmp(cmd, cmd_template) != 0)
+                fprintf(stdout, "[command]  %s\n", cmd);  /* show filled command */
+
+            if (at_confirm(cmd)) {
+                aishell_log(LOG_REGISTRY, query, cmd, "executed");
+                int rc = at_execute_direct(cmd);
+                free(cmd);
+                return rc;
+            }
+            aishell_log(LOG_REGISTRY, query, cmd_template, "cancelled");
+            free(cmd);
+            return 0;
+
+        } else if (rag_count > 0) {
+            /* Low-confidence — build context for the LLM */
+            fprintf(stdout, "[rag] Low confidence (score=%.2f) — "
+                    "sending to AI with context...\n",
+                    (double)rag_results[0].score);
+            rag_context = rag_build_context(rag_results, rag_count);
         } else {
-            cmd = entry->command;
+            fprintf(stdout, "[rag] No relevant commands found — sending to AI...\n");
         }
-        fprintf(stdout, "[command]  %s\n", cmd);
-
-        if (at_confirm(cmd)) {
-            aishell_log(LOG_REGISTRY, query, cmd, "executed");
-            int rc = at_execute_direct(cmd);
+    } else {
+        /* RAG disabled — fall back to simple keyword lookup */
+        RegistryEntry *entry = registry_lookup(query);
+        if (entry != NULL) {
+            fprintf(stdout, "[registry] Matched: %s\n", entry->description);
+            char *cmd      = NULL;
+            int   cmd_heap = 0;
+            if (entry->requires_arg) {
+                cmd = registry_build_command(entry, query);
+                if (!cmd) { free(rag_context); return 1; }
+                cmd_heap = 1;
+            } else {
+                cmd = entry->command;
+            }
+            fprintf(stdout, "[command]  %s\n", cmd);
+            if (at_confirm(cmd)) {
+                aishell_log(LOG_REGISTRY, query, cmd, "executed");
+                int rc = at_execute_direct(cmd);
+                if (cmd_heap) free(cmd);
+                free(rag_context);
+                return rc;
+            }
+            aishell_log(LOG_REGISTRY, query, cmd, "cancelled");
             if (cmd_heap) free(cmd);
-            return rc;
+            free(rag_context);
+            return 0;
         }
-        aishell_log(LOG_REGISTRY, query, cmd, "cancelled");
-        if (cmd_heap) free(cmd);
-        return 0;
     }
 
     /* ── STEP C: MCP server (local TCP socket) ── */
@@ -2851,15 +3523,19 @@ static int handle_at_query(const char *raw) {
             fprintf(stdout, "[mcp] Command: %s\n", resp.command_used);
             if (resp.result[0])
                 fprintf(stdout, "[mcp] Result:\n%s\n", resp.result);
+            free(rag_context);
             return 0;
         }
         fprintf(stdout, "[mcp] Error: %s\n", resp.error_msg);
         /* fall through to Claude API */
     }
 
-    /* ── STEP D: OpenRouter AI fallback ── */
-    fprintf(stdout, "[ai] MCP unavailable. Calling OpenRouter AI...\n");
-    AIResponse cr = openrouter_query(query);
+    /* ── STEP D: OpenRouter AI fallback (with optional RAG context) ── */
+    fprintf(stdout, "[ai] Calling OpenRouter AI%s...\n",
+            rag_context ? " with RAG context" : "");
+    AIResponse cr = openrouter_query_ctx(query, rag_context);
+    free(rag_context);
+    rag_context = NULL;
     /* aishell_client.c logs the API call outcome (model name / error-*)
      * We add a single "executed" entry here only when the user confirms. */
     if (cr.success) {
@@ -2871,7 +3547,7 @@ static int handle_at_query(const char *raw) {
         char ans[8] = "";
         if (fgets(ans, sizeof(ans), stdin) && (ans[0] == 'y' || ans[0] == 'Y')) {
             aishell_log(LOG_AI, query, cr.suggestion, "executed");
-            return at_execute_confirmed(cr.suggestion);
+            return at_execute_direct(cr.suggestion);
         }
     } else {
         fprintf(stdout, "[openrouter] %s\n", cr.error_msg);
@@ -2915,6 +3591,283 @@ static void commands_json_print(void) {
     printf("\n]}\n");
 }
 
+/* ── Tab completion ──────────────────────────────────────────────────────── */
+
+/* Insert `ilen` bytes of `ins` at *cursor in buf, update *blen and *cursor. */
+static void tab_insert(char *buf, int *blen, int *cursor,
+                       const char *ins, int ilen)
+{
+    if (ilen <= 0 || *blen + ilen >= HIST_LINE) return;
+    memmove(buf + *cursor + ilen, buf + *cursor,
+            (size_t)(*blen - *cursor));
+    memcpy(buf + *cursor, ins, (size_t)ilen);
+    *cursor += ilen;
+    *blen   += ilen;
+    buf[*blen] = '\0';
+}
+
+/* Callback context for command-name collection */
+typedef struct { const char *partial; int plen;
+                 const char *matches[256]; int n; } TabCtx;
+
+static void tab_cmd_cb(const cmd_spec_t *s, void *ud) {
+    TabCtx *c = ud;
+    if (c->n < 256 && strncmp(s->name, c->partial, (size_t)c->plen) == 0)
+        c->matches[c->n++] = s->name;
+}
+
+/* Longest common prefix of all matches[].suffix (starting at offset plen). */
+static int tab_common(const char * const *m, int n, int plen)
+{
+    if (n == 0) return 0;
+    int k = (int)strlen(m[0]) - plen;
+    for (int i = 1; i < n && k > 0; i++) {
+        const char *a = m[0] + plen, *b = m[i] + plen;
+        int j = 0;
+        while (j < k && a[j] == b[j]) j++;
+        k = j;
+    }
+    return k;
+}
+
+/* Called when user presses TAB. Modifies buf/blen/cursor in place.
+ * Prints list to stderr if multiple unresolvable matches. */
+static void do_tab_complete(char *buf, int *blen, int *cursor,
+                             const char *prompt, int colored)
+{
+    /* Locate the word being completed (from word_start to *cursor) */
+    int ws = *cursor;
+    while (ws > 0 && buf[ws-1] != ' ' && buf[ws-1] != '\t') ws--;
+    int plen = *cursor - ws;
+    char partial[HIST_LINE] = "";
+    if (plen > 0) { memcpy(partial, buf+ws, (size_t)plen); partial[plen] = '\0'; }
+
+    /* Is this the first word on the line? */
+    int is_first = 1;
+    for (int i = 0; i < ws; i++)
+        if (buf[i] != ' ' && buf[i] != '\t') { is_first = 0; break; }
+
+    if (is_first) {
+        /* ── PART A: command-name completion ── */
+        TabCtx ctx = { .partial = partial, .plen = plen, .n = 0 };
+        for_each_command(tab_cmd_cb, &ctx);
+        if (ctx.n == 0) { fputc('\a', stderr); fflush(stderr); return; }
+
+        int common = tab_common(ctx.matches, ctx.n, plen);
+        if (common > 0) {
+            tab_insert(buf, blen, cursor, ctx.matches[0]+plen, common);
+            if (ctx.n == 1)
+                tab_insert(buf, blen, cursor, " ", 1);
+        } else {
+            fputc('\n', stderr);
+            for (int i = 0; i < ctx.n; i++)
+                fprintf(stderr, "  %s\n", ctx.matches[i]);
+        }
+    } else {
+        /* ── PART B: filename completion ── */
+        char pat[HIST_LINE + 2];
+        snprintf(pat, sizeof(pat), "%s*", partial);
+        glob_t gl;
+        memset(&gl, 0, sizeof(gl));
+        int gr = glob(pat, GLOB_NOSORT | GLOB_MARK | GLOB_TILDE, NULL, &gl);
+        if (gr != 0 || gl.gl_pathc == 0) {
+            globfree(&gl);
+            fputc('\a', stderr); fflush(stderr);
+            return;
+        }
+        int common = tab_common((const char *const *)gl.gl_pathv,
+                                 (int)gl.gl_pathc, plen);
+        if (common > 0) {
+            tab_insert(buf, blen, cursor, gl.gl_pathv[0]+plen, common);
+            /* append trailing space unless it's a directory (ends with /) */
+            if (gl.gl_pathc == 1 && (*blen == 0 || buf[*cursor-1] != '/'))
+                tab_insert(buf, blen, cursor, " ", 1);
+        } else {
+            fputc('\n', stderr);
+            for (size_t i = 0; i < gl.gl_pathc; i++)
+                fprintf(stderr, "  %s\n", gl.gl_pathv[i]);
+        }
+        globfree(&gl);
+    }
+
+    /* Refresh display after completion */
+    buf[*blen] = '\0';
+    if (colored)
+        fprintf(stderr, "\r\033[2K\033[0;33m%s\033[0m%.*s",
+                prompt, *blen, buf);
+    else
+        fprintf(stderr, "\r\033[2K%s%.*s", prompt, *blen, buf);
+    if (*cursor < *blen)
+        fprintf(stderr, "\033[%dD", *blen - *cursor);
+    fflush(stderr);
+}
+
+/* ── Raw-terminal line editor (Option B — no readline dependency) ────────── */
+/* Provides ↑/↓ history navigation and basic editing for TTY sessions.
+ * Falls back to plain getline for non-TTY (piped) input so tests are
+ * unaffected.  Returns a heap-allocated string (caller must free), or
+ * NULL on EOF. */
+static char *read_bnfc_line(const char *prompt_plain, int colored)
+{
+    if (!isatty(STDIN_FILENO)) {
+        /* Non-interactive: print prompt then use buffered getline */
+        fputs(prompt_plain, stderr);
+        fflush(stderr);
+        char  *buf = NULL;
+        size_t cap = 0;
+        ssize_t n;
+        do { n = getline(&buf, &cap, stdin); } while (n < 0 && errno == EINTR);
+        if (n < 0) { free(buf); return NULL; }
+        if (n > 0 && buf[n-1] == '\n') buf[--n] = '\0';
+        char *ret = strdup(buf ? buf : "");
+        free(buf);
+        return ret;
+    }
+
+    /* Interactive: raw mode with escape-sequence parsing */
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(unsigned)(ICANON | ECHO | ISIG);
+    newt.c_cc[VMIN]  = 1;
+    newt.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    if (colored)
+        fprintf(stderr, "\033[0;33m%s\033[0m", prompt_plain);
+    else
+        fputs(prompt_plain, stderr);
+    fflush(stderr);
+
+    char buf[HIST_LINE];
+    int  blen = 0, cursor = 0;
+    /* hist_nav == hist_total() means "current" (unsaved user text) */
+    int  hist_nav = hist_total();
+    char saved[HIST_LINE] = "";
+    memset(buf, 0, sizeof(buf));
+
+    for (;;) {
+        unsigned char c;
+        ssize_t r;
+        do { r = read(STDIN_FILENO, &c, 1); } while (r < 0 && errno == EINTR);
+        if (r <= 0) {
+            tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+            fputc('\n', stderr);
+            buf[blen] = '\0';
+            if (blen == 0) return NULL;
+            return strdup(buf);
+        }
+
+        if (c == '\r' || c == '\n') {
+            fputc('\n', stderr);
+            break;
+        }
+
+        if (c == 0x1b) {                       /* escape sequence */
+            unsigned char c2, c3;
+            r = read(STDIN_FILENO, &c2, 1);
+            if (r <= 0) goto redisplay;
+            if (c2 == '[') {
+                r = read(STDIN_FILENO, &c3, 1);
+                if (r <= 0) goto redisplay;
+                switch (c3) {
+                case 'A':                      /* Up: older history */
+                    if (hist_nav > 0) {
+                        if (hist_nav == hist_total()) {
+                            memcpy(saved, buf, (size_t)blen);
+                            saved[blen] = '\0';
+                        }
+                        hist_nav--;
+                        strncpy(buf, hist_get(hist_nav), HIST_LINE - 1);
+                        blen = (int)strlen(buf);
+                        cursor = blen;
+                    }
+                    break;
+                case 'B':                      /* Down: newer history */
+                    if (hist_nav < hist_total()) {
+                        hist_nav++;
+                        const char *h = (hist_nav == hist_total())
+                                        ? saved : hist_get(hist_nav);
+                        strncpy(buf, h, HIST_LINE - 1);
+                        blen = (int)strlen(buf);
+                        cursor = blen;
+                    }
+                    break;
+                case 'C': if (cursor < blen) cursor++; break;  /* Right */
+                case 'D': if (cursor > 0)   cursor--; break;   /* Left  */
+                case 'H': cursor = 0;    break;                 /* Home  */
+                case 'F': cursor = blen; break;                 /* End   */
+                case '3': {                                      /* Delete \x1b[3~ */
+                    unsigned char tilde;
+                    read(STDIN_FILENO, &tilde, 1);
+                    if (cursor < blen) {
+                        memmove(buf+cursor, buf+cursor+1,
+                                (size_t)(blen-cursor-1));
+                        blen--;
+                    }
+                    break;
+                }
+                default: break;
+                }
+            } else if (c2 == 'O') {
+                r = read(STDIN_FILENO, &c3, 1);
+                if (r > 0) {
+                    if (c3 == 'H') cursor = 0;
+                    else if (c3 == 'F') cursor = blen;
+                }
+            }
+        } else if (c == 0x7f || c == '\b') {  /* Backspace */
+            if (cursor > 0) {
+                memmove(buf+cursor-1, buf+cursor, (size_t)(blen-cursor));
+                cursor--;
+                blen--;
+            }
+        } else if (c == 0x04) {               /* Ctrl-D */
+            if (blen == 0) {
+                tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+                fputc('\n', stderr);
+                return NULL;
+            }
+            if (cursor < blen) {
+                memmove(buf+cursor, buf+cursor+1, (size_t)(blen-cursor-1));
+                blen--;
+            }
+        } else if (c == 0x01) { cursor = 0;    /* Ctrl-A */
+        } else if (c == 0x05) { cursor = blen; /* Ctrl-E */
+        } else if (c == 0x15) {               /* Ctrl-U: kill to start */
+            memmove(buf, buf+cursor, (size_t)(blen-cursor));
+            blen -= cursor;
+            cursor = 0;
+        } else if (c == 0x0b) {               /* Ctrl-K: kill to end */
+            blen = cursor;
+        } else if (c == 0x09) {               /* TAB: completion */
+            buf[blen] = '\0';
+            do_tab_complete(buf, &blen, &cursor, prompt_plain, colored);
+            continue;                          /* do_tab_complete refreshes display */
+        } else if (c >= 0x20 && blen < HIST_LINE - 1) {  /* printable */
+            memmove(buf+cursor+1, buf+cursor, (size_t)(blen-cursor));
+            buf[cursor] = (char)c;
+            cursor++;
+            blen++;
+        }
+
+redisplay:
+        buf[blen] = '\0';
+        if (colored)
+            fprintf(stderr, "\r\033[2K\033[0;33m%s\033[0m%.*s",
+                    prompt_plain, blen, buf);
+        else
+            fprintf(stderr, "\r\033[2K%s%.*s", prompt_plain, blen, buf);
+        if (cursor < blen)
+            fprintf(stderr, "\033[%dD", blen - cursor);
+        fflush(stderr);
+    }
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    buf[blen] = '\0';
+    return strdup(buf);
+}
+
 /* ── BNFC REPL loop ──────────────────────────────────────────────────────── */
 /* Replaces the hand-rolled tokeniser (preprocess → tokenise →
  * separate_commands) with: getline → psInput → eval_input.          */
@@ -2935,6 +3888,25 @@ static void bnfc_repl(void) {
     if (!getcwd(g_cwd, sizeof(g_cwd))) g_cwd[0] = '\0';
     pthread_mutex_unlock(&cwd_mutex);
 
+    /* Load command history from ~/.aishell_history */
+    char hist_file[512] = "";
+    {
+        const char *home = getenv("HOME");
+        if (home) snprintf(hist_file, sizeof(hist_file),
+                           "%s/.aishell_history", home);
+        if (hist_file[0]) {
+            FILE *hf = fopen(hist_file, "r");
+            if (hf) {
+                char hline[HIST_LINE];
+                while (fgets(hline, sizeof(hline), hf)) {
+                    hline[strcspn(hline, "\r\n")] = '\0';
+                    if (hline[0]) hist_add(hline);
+                }
+                fclose(hf);
+            }
+        }
+    }
+
     for (;;) {
         /* Build prompt with current directory */
         char display_prompt[4400];
@@ -2946,49 +3918,134 @@ static void bnfc_repl(void) {
             snprintf(display_prompt, sizeof(display_prompt), "%s", prompt);
         pthread_mutex_unlock(&cwd_mutex);
 
-        if (is_tty)
-            fprintf(stderr, "\033[0;33m%s\033[0m", display_prompt);
-        else
-            fputs(display_prompt, stderr);
-
-        /* EINTR-safe getline */
-        ssize_t nread;
-        do { nread = getline(&line, &len, stdin); }
-        while (nread < 0 && errno == EINTR);
-        if (nread < 0) break;   /* EOF */
-
-        /* Strip trailing newline */
-        if (nread > 0 && line[nread - 1] == '\n') line[nread - 1] = '\0';
-        if (line[0] == '\0') continue;
+        /* read_bnfc_line prints the prompt, handles raw-mode editing + history */
+        char *rline = read_bnfc_line(display_prompt, is_tty);
+        if (!rline) break;             /* EOF */
+        if (rline[0] == '\0') { free(rline); continue; }
 
         /* @-prefix: natural language input (Week 8 registry→MCP→Claude flow) */
-        if (line[0] == '@') {
-            handle_at_query(line + 1);
+        if (rline[0] == '@') {
+            handle_at_query(rline + 1);
+            free(rline);
             continue;
         }
 
-        /* Pre-process step 1: evaluate $((expr)) arithmetic expansions.
-         * Must run before command substitution so $((2+3)) is gone first. */
-        char *after_arith = preprocess_arith(line);
+        /* Multiline collection: keep reading with "> " prompt until all
+         * open for/while/until/if constructs are closed (depth == 0). */
+        char *full_buf = rline;   /* takes ownership — no extra strdup */
+        {
+            /* Count open depth: each for/while/until/if opens; done/fi closes */
+            int depth = 0;
+            char *scan_copy = strdup(full_buf);
+            char *tok = strtok(scan_copy, " \t\n");
+            while (tok) {
+                if (strcmp(tok,"for")==0 || strcmp(tok,"while")==0 ||
+                    strcmp(tok,"until")==0 || strcmp(tok,"if")==0)
+                    depth++;
+                else if (strcmp(tok,"done")==0 || strcmp(tok,"fi")==0)
+                    depth--;
+                tok = strtok(NULL, " \t\n");
+            }
+            free(scan_copy);
 
-        /* Pre-process step 2: expand $(cmd) command substitutions.
-         * Runs the inner command via popen(), replaces spaces in output with
-         * backtick placeholder so the result is a single BNFC Word token. */
+            while (depth > 0) {
+                if (is_tty) fprintf(stderr, "> ");
+                else fputs("> ", stderr);
+                fflush(stderr);
+
+                ssize_t mread;
+                do { mread = getline(&line, &len, stdin); }
+                while (mread < 0 && errno == EINTR);
+                if (mread < 0) break;   /* EOF mid-construct */
+
+                if (mread > 0 && line[mread-1] == '\n') line[mread-1] = '\0';
+
+                /* Append continuation line with space separator */
+                size_t new_sz = strlen(full_buf) + strlen(line) + 2;
+                char *tmp = malloc(new_sz);
+                if (tmp) {
+                    snprintf(tmp, new_sz, "%s %s", full_buf, line);
+                    free(full_buf);
+                    full_buf = tmp;
+                }
+
+                /* Recount depth in the expanded buffer */
+                depth = 0;
+                scan_copy = strdup(full_buf);
+                tok = strtok(scan_copy, " \t\n");
+                while (tok) {
+                    if (strcmp(tok,"for")==0 || strcmp(tok,"while")==0 ||
+                        strcmp(tok,"until")==0 || strcmp(tok,"if")==0)
+                        depth++;
+                    else if (strcmp(tok,"done")==0 || strcmp(tok,"fi")==0)
+                        depth--;
+                    tok = strtok(NULL, " \t\n");
+                }
+                free(scan_copy);
+            }
+        }
+
+        /* Record the complete (possibly multi-line) command in history */
+        hist_add(full_buf);
+
+        /* Handle alias/unalias with '=' or '\'' directly before BNFC.
+         * BNFC lexes NAME=VALUE as Assign token, so those args never reach alias_run. */
+        {
+            int alias_rc = 0;
+            if (try_handle_alias_define(full_buf, &alias_rc)) {
+                g_last_status = alias_rc;
+                free(full_buf);
+                continue;
+            }
+        }
+
+        /* Pre-process step 0: alias expansion — replace first word if it's an alias.
+         * One level only (no recursive expansion) to avoid infinite loops. */
+        {
+            const char *p = full_buf;
+            while (*p == ' ' || *p == '\t') p++;
+            const char *word_start = p;
+            while (*p && *p != ' ' && *p != '\t') p++;
+            size_t wlen = (size_t)(p - word_start);
+            if (wlen > 0 && wlen < 64) {
+                char first[64];
+                memcpy(first, word_start, wlen);
+                first[wlen] = '\0';
+                const char *aval = alias_get(first);
+                if (aval) {
+                    size_t need = strlen(aval) + strlen(p) + 2;
+                    char *expanded = malloc(need);
+                    if (expanded) {
+                        snprintf(expanded, need, "%s%s", aval, p);
+                        free(full_buf);
+                        full_buf = expanded;
+                    }
+                }
+            }
+        }
+
+        /* Pre-process step 1: evaluate $((expr)) arithmetic expansions. */
+        char *after_arith = preprocess_arith(full_buf);
+        free(full_buf);
+
+        /* Pre-process step 2: expand $(cmd) command substitutions. */
         char *after_subst = preprocess_cmd_subst(after_arith);
         free(after_arith);
 
-        /* Pre-process step 3: strip " and replace spaces inside "..." with `
-         * so quoted strings survive as single Word tokens in the BNFC parser. */
-        char *processed = preprocess_quotes(after_subst);
+        /* Pre-process step 3: normalize "; do", "; done", "; fi", "; then"
+         * into " do", " done" etc. so BNFC grammar parses bash-style loops. */
+        char *after_loops = preprocess_loop_syntax(after_subst);
         free(after_subst);
 
-        /* Parse with BNFC — psInput() writes its own syntax error to stderr
-         * (e.g. "syntax error, unexpected PIPE") before returning NULL.
-         * We add the offending line so the user can see what was rejected. */
+        /* Pre-process step 4: strip " and replace spaces inside "..." with `. */
+        char *processed = preprocess_quotes(after_loops);
+        free(after_loops);
+
+        /* Parse with BNFC */
         Input ast = psInput(processed);
         free(processed);
         if (!ast) {
-            fprintf(stderr, "aishell: syntax error in: %s\n", line);
+            fprintf(stderr, "aishell: syntax error\n");
             g_last_status = 1;
             continue;
         }
@@ -2997,7 +4054,17 @@ static void bnfc_repl(void) {
         g_last_status = rc;
     }
 
-    free(line);
+    /* Save history to ~/.aishell_history on exit */
+    if (hist_file[0]) {
+        FILE *hf = fopen(hist_file, "w");
+        if (hf) {
+            for (int i = 0; i < hist_total(); i++)
+                fprintf(hf, "%s\n", hist_get(i));
+            fclose(hf);
+        }
+    }
+
+    free(line);   /* free continuation-line buffer from getline calls */
 }
 
 #endif /* USE_BNFC */

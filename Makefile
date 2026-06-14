@@ -1,6 +1,6 @@
 CC      = gcc
 CFLAGS  = -Wall -Wextra -g -std=c11 -pthread -D_POSIX_C_SOURCE=200809L
-LDFLAGS = -largtable3 -pthread
+LDFLAGS = -largtable3 -pthread -lm
 
 # Auto-detect libcurl dev headers — sets -DHAVE_CURL and -lcurl when available.
 # Install headers with:  sudo apt install libcurl4-openssl-dev
@@ -31,9 +31,11 @@ SRCS = aishell_main.c \
        cmd_edit_replace_line.c cmd_edit_insert_line.c \
        cmd_edit_delete_line.c cmd_edit_replace.c \
        edit_utils.c \
-       cmd_wc.c cmd_sort.c cmd_uniq.c cmd_cut.c cmd_tr.c cmd_date.c cmd_find.c cmd_edit_show.c \
+       cmd_wc.c cmd_sort.c cmd_uniq.c cmd_cut.c cmd_tr.c cmd_grep.c cmd_diff.c cmd_tee.c cmd_du.c cmd_df.c cmd_ln.c cmd_chmod.c cmd_chown.c cmd_sleep.c cmd_which.c cmd_true_false.c cmd_file.c cmd_date.c cmd_find.c cmd_edit_show.c \
+       hash_utils.c cmd_md5sum.c cmd_sha256sum.c cmd_alias.c cmd_history.c cmd_ping.c cmd_nc.c cmd_xargs.c cmd_read.c cmd_test.c \
        cmd_help_json.c registry.c \
-       cmd_registry.c cJSON.c mcp_client.c aishell_client.c aishell_log.c
+       cmd_registry.c cJSON.c mcp_client.c aishell_client.c aishell_log.c \
+       config.c mcp_server.c ftp_handler.c rag_retriever.c cmd_server.c
 
 # BNFC-generated object files (built in bnfc/ after running bnfc-gen)
 BNFC_DIR  = bnfc
@@ -43,7 +45,7 @@ BNFC_OBJS = $(BNFC_DIR)/Absyn.o  \
             $(BNFC_DIR)/Parser.o \
             $(BNFC_DIR)/Printer.o
 
-.PHONY: all clean bnfc-gen bnfc-test bnfc-clean run log test
+.PHONY: all clean bnfc-gen bnfc-test bnfc-clean run log test test9 testall ftp-test
 
 # ── default: build ./aishell with BNFC parser (week7) ────────────────────────
 # On the week7 branch ./aishell IS the BNFC-powered shell.
@@ -68,8 +70,9 @@ $(BNFC_DIR)/Lexer.c: $(BNFC_DIR)/Grammar.l
 
 # Grammar.y  → bison → Parser.c + Bison.h
 # -pgrammar_ sets the symbol prefix to match BNFC's generated parser calls
+# Run bison from within BNFC_DIR so %defines "Bison.h" writes to the right place.
 $(BNFC_DIR)/Parser.c $(BNFC_DIR)/Bison.h: $(BNFC_DIR)/Grammar.y
-	bison -t -pgrammar_ $< -o $(BNFC_DIR)/Parser.c
+	cd $(BNFC_DIR) && bison -t -pgrammar_ Grammar.y -o Parser.c
 
 $(BNFC_DIR)/Absyn.o:  $(BNFC_DIR)/Absyn.c  $(BNFC_DIR)/Absyn.h
 	$(CC) $(CFLAGS_GEN) -c $< -o $@
@@ -109,3 +112,12 @@ log:
 
 test: aishell
 	bash test_week8.sh
+
+test9: aishell
+	bash test_week9.sh
+
+testall: aishell
+	bash test_week5.sh && bash test_week8.sh && bash test_week9.sh
+
+ftp-test:
+	ftp 127.0.0.1 9000

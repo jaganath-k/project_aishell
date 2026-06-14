@@ -87,9 +87,7 @@ extern int grammar_debug;
     _RBRACE = 288,                 /* _RBRACE  */
     T_ArithExp = 289,              /* T_ArithExp  */
     T_Assign = 290,                /* T_Assign  */
-    T_ProcSubstIn = 291,           /* T_ProcSubstIn  */
-    T_ProcSubstOut = 292,          /* T_ProcSubstOut  */
-    T_Word = 293                   /* T_Word  */
+    T_Word = 291                   /* T_Word  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -98,7 +96,7 @@ extern int grammar_debug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 90 "Grammar.y"
+#line 90 "bnfc/Grammar.y"
 
   int    _int;
   char   _char;
@@ -118,7 +116,7 @@ union YYSTYPE
   CommandPart commandpart_;
   ListWord listword_;
 
-#line 122 "Bison.h"
+#line 120 "Bison.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

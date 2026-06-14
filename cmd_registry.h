@@ -35,3 +35,10 @@ char          *registry_build_command(RegistryEntry *entry, const char *query);
 
 /* Print all loaded registry entries to stdout. */
 void           registry_list(void);
+
+/* Iterate all loaded entries, calling cb(entry, userdata) for each. */
+void           registry_for_each(void (*cb)(const RegistryEntry *e, void *ud),
+                                 void *ud);
+
+/* Return the number of entries currently loaded. */
+int            registry_count(void);
