@@ -47,7 +47,10 @@
       "command": "find {path} -type f -mtime +{days} -delete",
       "category": "filesystem",
       "requires_arg": true,
-      "args": ["path", "days"]
+      "args": [
+        "path",
+        "days"
+      ]
     },
     {
       "id": "find_by_name",
@@ -62,7 +65,9 @@
       "command": "find . -type f -name '{name}'",
       "category": "filesystem",
       "requires_arg": true,
-      "args": ["name"]
+      "args": [
+        "name"
+      ]
     },
     {
       "id": "list_processes",
@@ -123,7 +128,9 @@
       "command": "pkill -f {name}",
       "category": "process",
       "requires_arg": true,
-      "args": ["name"]
+      "args": [
+        "name"
+      ]
     },
     {
       "id": "network_connections",
@@ -155,7 +162,9 @@
       "command": "ping -c 4 {host}",
       "category": "network",
       "requires_arg": true,
-      "args": ["host"]
+      "args": [
+        "host"
+      ]
     },
     {
       "id": "show_ip_address",
@@ -187,7 +196,9 @@
       "command": "grep -rn '{pattern}' .",
       "category": "text_search",
       "requires_arg": true,
-      "args": ["pattern"]
+      "args": [
+        "pattern"
+      ]
     },
     {
       "id": "count_lines",
@@ -218,7 +229,9 @@
       "command": "tail -n 20 {file}",
       "category": "text_search",
       "requires_arg": true,
-      "args": ["file"]
+      "args": [
+        "file"
+      ]
     },
     {
       "id": "compress_directory",
@@ -234,7 +247,10 @@
       "command": "tar -czf {name}.tar.gz {path}",
       "category": "filesystem",
       "requires_arg": true,
-      "args": ["name", "path"]
+      "args": [
+        "name",
+        "path"
+      ]
     },
     {
       "id": "show_logged_in_users",
@@ -279,6 +295,158 @@
       "description": "Show the current date and time",
       "command": "date",
       "category": "process",
+      "requires_arg": false
+    },
+    {
+      "id": "sort_lines",
+      "aliases": [
+        "sort lines",
+        "sort a file",
+        "sort lines in a file",
+        "alphabetical sort",
+        "sort text",
+        "sort file contents",
+        "sort alphabetically",
+        "order lines"
+      ],
+      "description": "Sort lines in a file alphabetically",
+      "command": "sort {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "sort_lines_unique",
+      "aliases": [
+        "sort unique",
+        "sort and deduplicate",
+        "sort unique lines",
+        "deduplicate sorted",
+        "unique sorted lines"
+      ],
+      "description": "Sort lines in a file and remove duplicates",
+      "command": "sort -u {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "sort_reverse",
+      "aliases": [
+        "sort reverse",
+        "reverse sort",
+        "sort descending",
+        "sort backwards",
+        "sort z to a"
+      ],
+      "description": "Sort lines in a file in reverse order",
+      "command": "sort -r {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "show_file_head",
+      "aliases": [
+        "show first lines",
+        "head of file",
+        "top of file",
+        "first 20 lines",
+        "beginning of file",
+        "file head"
+      ],
+      "description": "Show the first 20 lines of a file",
+      "command": "head -n 20 {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "list_directory",
+      "aliases": [
+        "list files",
+        "list directory",
+        "show files",
+        "ls",
+        "what files are here",
+        "directory contents",
+        "list directory contents"
+      ],
+      "description": "List files in the current directory",
+      "command": "ls -la",
+      "category": "filesystem",
+      "requires_arg": false
+    },
+    {
+      "id": "show_file_contents",
+      "aliases": [
+        "show file",
+        "cat file",
+        "print file",
+        "display file",
+        "read file",
+        "view file contents",
+        "show file contents"
+      ],
+      "description": "Display contents of a file",
+      "command": "cat {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "count_words_lines",
+      "aliases": [
+        "count words",
+        "word count",
+        "count lines in file",
+        "how many lines",
+        "wc",
+        "line count",
+        "character count"
+      ],
+      "description": "Count lines, words, and bytes in a file",
+      "command": "wc {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "grep_file",
+      "aliases": [
+        "search in file",
+        "find text in file",
+        "grep file",
+        "search file for pattern",
+        "find pattern in file"
+      ],
+      "description": "Search for a pattern inside a single file",
+      "command": "grep '{pattern}' {file}",
+      "category": "text",
+      "requires_arg": false
+    },
+    {
+      "id": "show_running_processes",
+      "aliases": [
+        "show processes",
+        "what is running",
+        "running programs",
+        "process list",
+        "ps",
+        "list processes"
+      ],
+      "description": "Show all running processes",
+      "command": "ps aux",
+      "category": "process",
+      "requires_arg": false
+    },
+    {
+      "id": "free_memory",
+      "aliases": [
+        "free memory",
+        "memory usage",
+        "how much ram",
+        "available memory",
+        "ram usage",
+        "memory free"
+      ],
+      "description": "Show free and used memory",
+      "command": "free -h",
+      "category": "system",
       "requires_arg": false
     }
   ]

@@ -270,6 +270,10 @@ void visitArg(Arg p)
     /* Code for PSubstOutArg Goes Here */
     visitProcSubstOut(p->u.psubstoutarg_.procsubstout_);
     break;
+  case is_AssignArg:
+    /* Code for AssignArg Goes Here */
+    visitAssign(p->u.assignarg_.assign_);
+    break;
 
   default:
     fprintf(stderr, "Error: bad kind field when printing Arg!\n");

@@ -586,6 +586,21 @@ Arg make_PSubstOutArg(ProcSubstOut p1)
     return tmp;
 }
 
+/********************   AssignArg    ********************/
+
+Arg make_AssignArg(Assign p1)
+{
+    Arg tmp = (Arg) malloc(sizeof(*tmp));
+    if (!tmp)
+    {
+        fprintf(stderr, "Error: out of memory when allocating AssignArg!\n");
+        exit(1);
+    }
+    tmp->kind = is_AssignArg;
+    tmp->u.assignarg_.assign_ = p1;
+    return tmp;
+}
+
 /********************   ListArg    ********************/
 
 ListArg make_ListArg(Arg p1, ListArg p2)
@@ -877,6 +892,9 @@ Arg clone_Arg(Arg p)
 
   case is_PSubstOutArg:
     return make_PSubstOutArg (strdup(p->u.psubstoutarg_.procsubstout_));
+
+  case is_AssignArg:
+    return make_AssignArg (strdup(p->u.assignarg_.assign_));
 
   default:
     fprintf(stderr, "Error: bad kind field when cloning Arg!\n");
@@ -1194,6 +1212,10 @@ void free_Arg(Arg p)
 
   case is_PSubstOutArg:
     free(p->u.psubstoutarg_.procsubstout_);
+    break;
+
+  case is_AssignArg:
+    free(p->u.assignarg_.assign_);
     break;
 
   default:

@@ -222,6 +222,7 @@ Arg : T_Word { $$ = make_WrdArg($1); }
   | T_ArithExp { $$ = make_ArithArg($1); }
   | T_ProcSubstIn { $$ = make_PSubstInArg($1); }
   | T_ProcSubstOut { $$ = make_PSubstOutArg($1); }
+  | T_Assign { $$ = make_AssignArg($1); }
 ;
 ListArg : /* empty */ { $$ = 0; }
   | ListArg Arg { $$ = make_ListArg($2, $1); }

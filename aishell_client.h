@@ -16,3 +16,7 @@ typedef struct {
  * When built WITHOUT -DHAVE_CURL the function returns success=0 and
  * prints an installation hint — no crash, graceful degradation.         */
 AIResponse openrouter_query(const char *query);
+
+/* Context-aware variant: RAG context is prepended to the system prompt.
+ * Pass context=NULL to behave identically to openrouter_query(). */
+AIResponse openrouter_query_ctx(const char *query, const char *context);

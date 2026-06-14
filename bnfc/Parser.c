@@ -564,18 +564,18 @@ union yyalloc
 #endif /* !YYCOPY_NEEDED */
 
 /* YYFINAL -- State number of the termination state.  */
-#define YYFINAL  33
+#define YYFINAL  34
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   101
+#define YYLAST   95
 
 /* YYNTOKENS -- Number of terminals.  */
 #define YYNTOKENS  39
 /* YYNNTS -- Number of nonterminals.  */
 #define YYNNTS  14
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  45
+#define YYNRULES  46
 /* YYNSTATES -- Number of states.  */
-#define YYNSTATES  88
+#define YYNSTATES  89
 
 /* YYMAXUTOK -- Last valid token kind.  */
 #define YYMAXUTOK   293
@@ -632,7 +632,7 @@ static const yytype_uint8 yyrline[] =
      186,   187,   189,   190,   192,   193,   194,   196,   197,   198,
      200,   201,   202,   203,   204,   206,   208,   209,   210,   211,
      212,   213,   214,   215,   216,   218,   219,   221,   222,   223,
-     224,   226,   227,   229,   231,   232
+     224,   225,   227,   228,   230,   232,   233
 };
 #endif
 
@@ -666,12 +666,12 @@ yysymbol_name (yysymbol_kind_t yysymbol)
 }
 #endif
 
-#define YYPACT_NINF (-53)
+#define YYPACT_NINF (-35)
 
 #define yypact_value_is_default(Yyn) \
   ((Yyn) == YYPACT_NINF)
 
-#define YYTABLE_NINF (-1)
+#define YYTABLE_NINF (-6)
 
 #define yytable_value_is_error(Yyn) \
   0
@@ -680,15 +680,15 @@ yysymbol_name (yysymbol_kind_t yysymbol)
    STATE-NUM.  */
 static const yytype_int8 yypact[] =
 {
-      27,    63,    27,   -53,   -53,   -34,    63,    63,    63,    63,
-      27,   -53,   -53,   -53,   -53,   -53,    13,    -7,   -53,    11,
-      -5,   -53,     4,   -53,   -10,   -53,    16,     3,     0,   -53,
-      12,    15,    -4,   -53,    27,   -53,    63,    63,     2,     7,
-       8,    14,    20,    21,   -53,   -14,   -14,   -53,    22,    27,
-      27,    27,   -53,   -53,   -53,   -53,   -53,   -53,   -53,    25,
-      23,   -53,   -53,   -53,    22,    24,   -18,    34,    47,    30,
-      31,   -53,    27,    63,    27,    19,   -53,   -53,   -53,   -53,
-      54,    49,   -53,   -53,   -53,    27,   -18,   -53
+       7,    24,     7,   -35,   -35,   -34,    24,    24,    24,    24,
+       7,   -35,    57,   -35,   -35,   -35,    14,    -7,   -35,    13,
+      -5,   -35,     6,   -35,    -9,   -35,   -35,    16,     4,     0,
+     -35,    22,    28,    19,   -35,     7,   -35,    24,    24,     9,
+      15,    17,    18,    25,    26,   -35,    51,    51,   -35,    27,
+       7,     7,     7,   -35,   -35,   -35,   -35,   -35,   -35,   -35,
+      53,    55,   -35,   -35,   -35,    27,    52,   -18,    61,    62,
+      34,    36,   -35,     7,    24,     7,    60,   -35,   -35,   -35,
+     -35,    64,    65,   -35,   -35,   -35,     7,   -18,   -35
 };
 
 /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
@@ -697,28 +697,28 @@ static const yytype_int8 yypact[] =
 static const yytype_int8 yydefact[] =
 {
        0,     0,     0,    10,    11,     0,     0,     0,     0,     0,
-       0,    38,     5,    39,    40,    37,     0,    12,     2,     3,
-      17,    20,    26,    41,    35,    21,     0,     0,     0,    22,
-       0,     0,     0,     1,     0,     4,     0,     0,     0,     0,
-       0,     0,     0,     0,    25,    43,     0,    23,    44,     0,
-       0,     0,    24,    13,    18,    19,    29,    28,    27,    32,
-      31,    30,    42,    36,    44,     0,    14,     0,     0,     0,
-       0,    45,     0,     0,     0,     0,     9,     8,    33,    34,
-       0,     0,    15,     6,     7,     0,    14,    16
+       0,    38,    41,    39,    40,    37,     0,    12,     2,     3,
+      17,    20,    26,    42,    35,    41,    21,     0,     0,     0,
+      22,     0,     0,     0,     1,     0,     4,     0,     0,     0,
+       0,     0,     0,     0,     0,    25,    44,     0,    23,    45,
+       0,     0,     0,    24,    13,    18,    19,    29,    28,    27,
+      32,    31,    30,    43,    36,    45,     0,    14,     0,     0,
+       0,     0,    46,     0,     0,     0,     0,     9,     8,    33,
+      34,     0,     0,    15,     6,     7,     0,    14,    16
 };
 
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -53,   -53,   -53,    -2,   -52,     1,     5,   -53,   -53,    32,
-      35,   -53,   -53,    17
+     -35,   -35,   -35,    -2,     8,     1,     5,   -35,   -35,    45,
+      47,   -35,   -35,    29
 };
 
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int8 yydefgoto[] =
 {
-       0,    16,    17,    18,    75,    19,    20,    21,    44,    22,
-      23,    45,    24,    65
+       0,    16,    17,    18,    76,    19,    20,    21,    45,    22,
+      23,    46,    24,    66
 };
 
 /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
@@ -726,32 +726,30 @@ static const yytype_int8 yydefgoto[] =
    number is the opposite.  If YYTABLE_NINF, syntax error.  */
 static const yytype_int8 yytable[] =
 {
-      26,    36,    73,    74,    27,    34,    25,    28,    32,    30,
-      31,    38,    29,    33,    39,    40,    35,    41,    42,    43,
-      11,    46,    13,    14,    15,    47,    49,    37,    48,    52,
-      50,     1,    53,    51,    87,     2,    70,    54,    55,    69,
-      56,    83,    72,     3,     4,    57,    58,    66,    67,    68,
-       5,     6,    59,    76,     7,     8,     9,    10,    60,    61,
-      64,    11,    12,    13,    14,    15,    77,     1,    78,    79,
-      80,     2,    82,    84,    81,    85,     0,     0,    63,     0,
-      62,    71,     0,    86,     0,     0,     0,     0,     0,     0,
-       7,     0,     0,    10,     0,     0,     0,    11,     0,    13,
-      14,    15
+      27,    37,    74,    75,    28,    35,    26,    29,    33,    31,
+      32,     1,    30,    39,    34,     2,    40,    41,    36,    42,
+      43,    44,    47,     3,     4,    48,    50,    38,     1,    49,
+       5,     6,     2,    54,     7,     8,     9,    10,    55,    56,
+      51,    11,    12,    13,    14,    15,    52,    57,    67,    68,
+      69,     7,    53,    58,    10,    59,    60,    -5,    11,    25,
+      13,    14,    15,    61,    62,    65,    -5,    70,    71,    -5,
+      73,    81,    79,    83,    80,    82,    -5,    -5,    -5,    -5,
+      77,    78,    84,    85,    87,    11,    25,    13,    14,    15,
+      -5,    86,    64,    63,    72,    88
 };
 
 static const yytype_int8 yycheck[] =
 {
        2,     6,    20,    21,    38,    12,     1,     6,    10,     8,
-       9,     7,     7,     0,    10,    11,     5,    13,    14,    15,
-      34,    31,    36,    37,    38,     9,    26,    32,    25,    33,
-      18,     4,    34,    18,    86,     8,    13,    36,    37,    14,
-      38,    22,    18,    16,    17,    38,    38,    49,    50,    51,
-      23,    24,    38,    19,    27,    28,    29,    30,    38,    38,
-      38,    34,    35,    36,    37,    38,    19,     4,    38,    38,
-      72,     8,    74,    19,    73,    26,    -1,    -1,    46,    -1,
-      45,    64,    -1,    85,    -1,    -1,    -1,    -1,    -1,    -1,
-      27,    -1,    -1,    30,    -1,    -1,    -1,    34,    -1,    36,
-      37,    38
+       9,     4,     7,     7,     0,     8,    10,    11,     5,    13,
+      14,    15,    31,    16,    17,     9,    26,    32,     4,    25,
+      23,    24,     8,    35,    27,    28,    29,    30,    37,    38,
+      18,    34,    35,    36,    37,    38,    18,    38,    50,    51,
+      52,    27,    33,    38,    30,    38,    38,     0,    34,    35,
+      36,    37,    38,    38,    38,    38,     9,    14,    13,    12,
+      18,    73,    38,    75,    38,    74,    19,    20,    21,    22,
+      19,    19,    22,    19,    86,    34,    35,    36,    37,    38,
+      33,    26,    47,    46,    65,    87
 };
 
 /* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
@@ -760,13 +758,13 @@ static const yytype_int8 yystos[] =
 {
        0,     4,     8,    16,    17,    23,    24,    27,    28,    29,
       30,    34,    35,    36,    37,    38,    40,    41,    42,    44,
-      45,    46,    48,    49,    51,    45,    42,    38,    44,    45,
-      44,    44,    42,     0,    12,     5,     6,    32,     7,    10,
-      11,    13,    14,    15,    47,    50,    31,     9,    25,    26,
-      18,    18,    33,    42,    44,    44,    38,    38,    38,    38,
-      38,    38,    49,    48,    38,    52,    42,    42,    42,    14,
-      13,    52,    18,    20,    21,    43,    19,    19,    38,    38,
-      42,    44,    42,    22,    19,    26,    42,    43
+      45,    46,    48,    49,    51,    35,    45,    42,    38,    44,
+      45,    44,    44,    42,     0,    12,     5,     6,    32,     7,
+      10,    11,    13,    14,    15,    47,    50,    31,     9,    25,
+      26,    18,    18,    33,    42,    44,    44,    38,    38,    38,
+      38,    38,    38,    49,    48,    38,    52,    42,    42,    42,
+      14,    13,    52,    18,    20,    21,    43,    19,    19,    38,
+      38,    42,    44,    42,    22,    19,    26,    42,    43
 };
 
 /* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
@@ -776,7 +774,7 @@ static const yytype_int8 yyr1[] =
       41,    41,    42,    42,    43,    43,    43,    44,    44,    44,
       45,    45,    45,    45,    45,    46,    47,    47,    47,    47,
       47,    47,    47,    47,    47,    48,    48,    49,    49,    49,
-      49,    50,    50,    51,    52,    52
+      49,    49,    50,    50,    51,    52,    52
 };
 
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
@@ -786,7 +784,7 @@ static const yytype_int8 yyr2[] =
        1,     1,     1,     3,     0,     2,     5,     1,     3,     3,
        1,     2,     2,     3,     3,     2,     0,     2,     2,     2,
        2,     2,     2,     4,     4,     1,     3,     1,     1,     1,
-       1,     0,     2,     2,     0,     2
+       1,     1,     0,     2,     2,     0,     2
 };
 
 
@@ -1377,269 +1375,275 @@ yyreduce:
   case 2: /* Input: ListJob  */
 #line 177 "Grammar.y"
                 { (yyval.input_) = make_StartInput((yyvsp[0].listjob_)); result->input_ = (yyval.input_); }
-#line 1381 "Parser.c"
+#line 1379 "Parser.c"
     break;
 
   case 3: /* Job: Condition  */
 #line 179 "Grammar.y"
                 { (yyval.job_) = make_OneJobFG((yyvsp[0].condition_)); }
-#line 1387 "Parser.c"
+#line 1385 "Parser.c"
     break;
 
   case 4: /* Job: Condition _AMP  */
 #line 180 "Grammar.y"
                    { (yyval.job_) = make_OneJobBG((yyvsp[-1].condition_)); }
-#line 1393 "Parser.c"
+#line 1391 "Parser.c"
     break;
 
   case 5: /* Job: T_Assign  */
 #line 181 "Grammar.y"
              { (yyval.job_) = make_AssignJob((yyvsp[0]._string)); }
-#line 1399 "Parser.c"
+#line 1397 "Parser.c"
     break;
 
   case 6: /* Job: _KW_if Condition _KW_then ListJob OptElse _KW_fi  */
 #line 182 "Grammar.y"
                                                      { (yyval.job_) = make_IfStmt((yyvsp[-4].condition_), (yyvsp[-2].listjob_), (yyvsp[-1].optelse_)); }
-#line 1405 "Parser.c"
+#line 1403 "Parser.c"
     break;
 
   case 7: /* Job: _KW_for T_Word _KW_in ListWord _KW_do ListJob _KW_done  */
 #line 183 "Grammar.y"
                                                            { (yyval.job_) = make_ForStmt((yyvsp[-5]._string), (yyvsp[-3].listword_), (yyvsp[-1].listjob_)); }
-#line 1411 "Parser.c"
+#line 1409 "Parser.c"
     break;
 
   case 8: /* Job: _KW_while Condition _KW_do ListJob _KW_done  */
 #line 184 "Grammar.y"
                                                 { (yyval.job_) = make_WhileStmt((yyvsp[-3].condition_), (yyvsp[-1].listjob_)); }
-#line 1417 "Parser.c"
+#line 1415 "Parser.c"
     break;
 
   case 9: /* Job: _KW_until Condition _KW_do ListJob _KW_done  */
 #line 185 "Grammar.y"
                                                 { (yyval.job_) = make_UntilStmt((yyvsp[-3].condition_), (yyvsp[-1].listjob_)); }
-#line 1423 "Parser.c"
+#line 1421 "Parser.c"
     break;
 
   case 10: /* Job: _KW_break  */
 #line 186 "Grammar.y"
               { (yyval.job_) = make_BreakStmt(); }
-#line 1429 "Parser.c"
+#line 1427 "Parser.c"
     break;
 
   case 11: /* Job: _KW_continue  */
 #line 187 "Grammar.y"
                  { (yyval.job_) = make_ContStmt(); }
-#line 1435 "Parser.c"
+#line 1433 "Parser.c"
     break;
 
   case 12: /* ListJob: Job  */
 #line 189 "Grammar.y"
               { (yyval.listjob_) = make_ListJob((yyvsp[0].job_), 0); }
-#line 1441 "Parser.c"
+#line 1439 "Parser.c"
     break;
 
   case 13: /* ListJob: Job _SEMI ListJob  */
 #line 190 "Grammar.y"
                       { (yyval.listjob_) = make_ListJob((yyvsp[-2].job_), (yyvsp[0].listjob_)); }
-#line 1447 "Parser.c"
+#line 1445 "Parser.c"
     break;
 
   case 14: /* OptElse: %empty  */
 #line 192 "Grammar.y"
                       { (yyval.optelse_) = make_NoElse(); }
-#line 1453 "Parser.c"
+#line 1451 "Parser.c"
     break;
 
   case 15: /* OptElse: _KW_else ListJob  */
 #line 193 "Grammar.y"
                      { (yyval.optelse_) = make_ElsePart((yyvsp[0].listjob_)); }
-#line 1459 "Parser.c"
+#line 1457 "Parser.c"
     break;
 
   case 16: /* OptElse: _KW_elif Condition _KW_then ListJob OptElse  */
 #line 194 "Grammar.y"
                                                 { (yyval.optelse_) = make_ElifPart((yyvsp[-3].condition_), (yyvsp[-1].listjob_), (yyvsp[0].optelse_)); }
-#line 1465 "Parser.c"
+#line 1463 "Parser.c"
     break;
 
   case 17: /* Condition: NegCmd  */
 #line 196 "Grammar.y"
                    { (yyval.condition_) = make_CondSingle((yyvsp[0].negcmd_)); }
-#line 1471 "Parser.c"
+#line 1469 "Parser.c"
     break;
 
   case 18: /* Condition: NegCmd _DAMP Condition  */
 #line 197 "Grammar.y"
                            { (yyval.condition_) = make_CondAnd((yyvsp[-2].negcmd_), (yyvsp[0].condition_)); }
-#line 1477 "Parser.c"
+#line 1475 "Parser.c"
     break;
 
   case 19: /* Condition: NegCmd _DBAR Condition  */
 #line 198 "Grammar.y"
                            { (yyval.condition_) = make_CondOr((yyvsp[-2].negcmd_), (yyvsp[0].condition_)); }
-#line 1483 "Parser.c"
+#line 1481 "Parser.c"
     break;
 
   case 20: /* NegCmd: CommandLine  */
 #line 200 "Grammar.y"
                      { (yyval.negcmd_) = make_PlainCL((yyvsp[0].commandline_)); }
-#line 1489 "Parser.c"
+#line 1487 "Parser.c"
     break;
 
   case 21: /* NegCmd: _BANG NegCmd  */
 #line 201 "Grammar.y"
                  { (yyval.negcmd_) = make_NotCL((yyvsp[0].negcmd_)); }
-#line 1495 "Parser.c"
+#line 1493 "Parser.c"
     break;
 
   case 22: /* NegCmd: _KW_time NegCmd  */
 #line 202 "Grammar.y"
                     { (yyval.negcmd_) = make_TimeCmd((yyvsp[0].negcmd_)); }
-#line 1501 "Parser.c"
+#line 1499 "Parser.c"
     break;
 
   case 23: /* NegCmd: _LPAREN ListJob _RPAREN  */
 #line 203 "Grammar.y"
                             { (yyval.negcmd_) = make_Subshell((yyvsp[-1].listjob_)); }
-#line 1507 "Parser.c"
+#line 1505 "Parser.c"
     break;
 
   case 24: /* NegCmd: _LBRACE ListJob _RBRACE  */
 #line 204 "Grammar.y"
                             { (yyval.negcmd_) = make_Group((yyvsp[-1].listjob_)); }
-#line 1513 "Parser.c"
+#line 1511 "Parser.c"
     break;
 
   case 25: /* CommandLine: Pipeline OptRedir  */
 #line 206 "Grammar.y"
                                 { (yyval.commandline_) = make_MkCmdLine((yyvsp[-1].pipeline_), (yyvsp[0].optredir_)); }
-#line 1519 "Parser.c"
+#line 1517 "Parser.c"
     break;
 
   case 26: /* OptRedir: %empty  */
 #line 208 "Grammar.y"
                        { (yyval.optredir_) = make_NoRedir(); }
-#line 1525 "Parser.c"
+#line 1523 "Parser.c"
     break;
 
   case 27: /* OptRedir: _SYMB_9 T_Word  */
 #line 209 "Grammar.y"
                    { (yyval.optredir_) = make_ErrAppRedir((yyvsp[0]._string)); }
-#line 1531 "Parser.c"
+#line 1529 "Parser.c"
     break;
 
   case 28: /* OptRedir: _SYMB_10 T_Word  */
 #line 210 "Grammar.y"
                     { (yyval.optredir_) = make_ErrRedir((yyvsp[0]._string)); }
-#line 1537 "Parser.c"
+#line 1535 "Parser.c"
     break;
 
   case 29: /* OptRedir: _SYMB_11 T_Word  */
 #line 211 "Grammar.y"
                     { (yyval.optredir_) = make_BothRedir((yyvsp[0]._string)); }
-#line 1543 "Parser.c"
+#line 1541 "Parser.c"
     break;
 
   case 30: /* OptRedir: _DGT T_Word  */
 #line 212 "Grammar.y"
                 { (yyval.optredir_) = make_AppendRedir((yyvsp[0]._string)); }
-#line 1549 "Parser.c"
+#line 1547 "Parser.c"
     break;
 
   case 31: /* OptRedir: _GT T_Word  */
 #line 213 "Grammar.y"
                { (yyval.optredir_) = make_OutRedir((yyvsp[0]._string)); }
-#line 1555 "Parser.c"
+#line 1553 "Parser.c"
     break;
 
   case 32: /* OptRedir: _LT T_Word  */
 #line 214 "Grammar.y"
                { (yyval.optredir_) = make_InRedir((yyvsp[0]._string)); }
-#line 1561 "Parser.c"
+#line 1559 "Parser.c"
     break;
 
   case 33: /* OptRedir: _LT T_Word _GT T_Word  */
 #line 215 "Grammar.y"
                           { (yyval.optredir_) = make_InOutRedir((yyvsp[-2]._string), (yyvsp[0]._string)); }
-#line 1567 "Parser.c"
+#line 1565 "Parser.c"
     break;
 
   case 34: /* OptRedir: _GT T_Word _LT T_Word  */
 #line 216 "Grammar.y"
                           { (yyval.optredir_) = make_OutInRedir((yyvsp[-2]._string), (yyvsp[0]._string)); }
-#line 1573 "Parser.c"
+#line 1571 "Parser.c"
     break;
 
   case 35: /* Pipeline: CommandPart  */
 #line 218 "Grammar.y"
                        { (yyval.pipeline_) = make_Single((yyvsp[0].commandpart_)); }
-#line 1579 "Parser.c"
+#line 1577 "Parser.c"
     break;
 
   case 36: /* Pipeline: CommandPart _BAR Pipeline  */
 #line 219 "Grammar.y"
                               { (yyval.pipeline_) = make_Pipe((yyvsp[-2].commandpart_), (yyvsp[0].pipeline_)); }
-#line 1585 "Parser.c"
+#line 1583 "Parser.c"
     break;
 
   case 37: /* Arg: T_Word  */
 #line 221 "Grammar.y"
              { (yyval.arg_) = make_WrdArg((yyvsp[0]._string)); }
-#line 1591 "Parser.c"
+#line 1589 "Parser.c"
     break;
 
   case 38: /* Arg: T_ArithExp  */
 #line 222 "Grammar.y"
                { (yyval.arg_) = make_ArithArg((yyvsp[0]._string)); }
-#line 1597 "Parser.c"
+#line 1595 "Parser.c"
     break;
 
   case 39: /* Arg: T_ProcSubstIn  */
 #line 223 "Grammar.y"
                   { (yyval.arg_) = make_PSubstInArg((yyvsp[0]._string)); }
-#line 1603 "Parser.c"
+#line 1601 "Parser.c"
     break;
 
   case 40: /* Arg: T_ProcSubstOut  */
 #line 224 "Grammar.y"
                    { (yyval.arg_) = make_PSubstOutArg((yyvsp[0]._string)); }
-#line 1609 "Parser.c"
+#line 1607 "Parser.c"
     break;
 
-  case 41: /* ListArg: %empty  */
-#line 226 "Grammar.y"
-                      { (yyval.listarg_) = 0; }
-#line 1615 "Parser.c"
+  case 41: /* Arg: T_Assign  */
+#line 225 "Grammar.y"
+             { (yyval.arg_) = make_AssignArg((yyvsp[0]._string)); }
+#line 1613 "Parser.c"
     break;
 
-  case 42: /* ListArg: ListArg Arg  */
+  case 42: /* ListArg: %empty  */
 #line 227 "Grammar.y"
+                      { (yyval.listarg_) = 0; }
+#line 1619 "Parser.c"
+    break;
+
+  case 43: /* ListArg: ListArg Arg  */
+#line 228 "Grammar.y"
                 { (yyval.listarg_) = make_ListArg((yyvsp[0].arg_), (yyvsp[-1].listarg_)); }
-#line 1621 "Parser.c"
+#line 1625 "Parser.c"
     break;
 
-  case 43: /* CommandPart: Arg ListArg  */
-#line 229 "Grammar.y"
+  case 44: /* CommandPart: Arg ListArg  */
+#line 230 "Grammar.y"
                           { (yyval.commandpart_) = make_Cmd((yyvsp[-1].arg_), reverseListArg((yyvsp[0].listarg_))); }
-#line 1627 "Parser.c"
+#line 1631 "Parser.c"
     break;
 
-  case 44: /* ListWord: %empty  */
-#line 231 "Grammar.y"
-                       { (yyval.listword_) = 0; }
-#line 1633 "Parser.c"
-    break;
-
-  case 45: /* ListWord: T_Word ListWord  */
+  case 45: /* ListWord: %empty  */
 #line 232 "Grammar.y"
+                       { (yyval.listword_) = 0; }
+#line 1637 "Parser.c"
+    break;
+
+  case 46: /* ListWord: T_Word ListWord  */
+#line 233 "Grammar.y"
                     { (yyval.listword_) = make_ListWord((yyvsp[-1]._string), (yyvsp[0].listword_)); }
-#line 1639 "Parser.c"
+#line 1643 "Parser.c"
     break;
 
 
-#line 1643 "Parser.c"
+#line 1647 "Parser.c"
 
       default: break;
     }
@@ -1837,7 +1841,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 235 "Grammar.y"
+#line 236 "Grammar.y"
 
 
 

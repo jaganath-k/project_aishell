@@ -28,8 +28,9 @@ token Assign ( letter (letter | digit | '_')* '='
 -- = added so --option=value long args (e.g. --color=auto) parse as a single Word.
 -- Assign takes priority over Word for NAME=VALUE (Assign defined first).
 -- '[' and ']' added so  [ -f file ]  dispatches to the "[" built-in.
-token Word   ( (letter | digit | ["-._/:*?~$`+%,="] | '[' | ']')
-               (letter | digit | ["-._/:*?~$`+%,="] | '[' | ']')* ) ;
+-- '\' added so printf "\r\n" escape sequences survive as a single token.
+token Word   ( (letter | digit | ["-._/:*?~$`+%,=\\"] | '[' | ']')
+               (letter | digit | ["-._/:*?~$`+%,=\\"] | '[' | ']')* ) ;
 
 entrypoints Input ;
 
@@ -101,12 +102,14 @@ Single.      Pipeline    ::= CommandPart ;
 Pipe.        Pipeline    ::= CommandPart "|" Pipeline ;
 
 -------------------------------------------------------------------
--- Command argument: plain word, arithmetic expansion, or process substitution
+-- Command argument: plain word, arithmetic expansion, process substitution,
+-- or a NAME=VALUE token (so "server config key=value" parses correctly).
 -------------------------------------------------------------------
 WrdArg.      Arg ::= Word ;
 ArithArg.    Arg ::= ArithExp ;
 PSubstInArg.  Arg ::= ProcSubstIn ;
 PSubstOutArg. Arg ::= ProcSubstOut ;
+AssignArg.   Arg ::= Assign ;
 
 separator Arg " " ;
 

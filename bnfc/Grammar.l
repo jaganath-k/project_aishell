@@ -86,7 +86,7 @@ IDENT [a-zA-Z0-9'_]
 <INITIAL>\<\([^\)]*\)    	 yylval->_string = strdup(yytext); return T_ProcSubstIn;
 <INITIAL>\>\([^\)]*\)    	 yylval->_string = strdup(yytext); return T_ProcSubstOut;
 <INITIAL>{LETTER}(\_|({DIGIT}|{LETTER}))*\=(\$|\%|\(|\)|\*|\+|\,|\-|\.|\/|\:|\?|\_|`|\~|({DIGIT}|{LETTER}))*    	 yylval->_string = strdup(yytext); return T_Assign;
-<INITIAL>(\$|\%|\*|\+|\,|\-|\.|\/|\:|\=|\?|\[|\]|\_|`|\~|({DIGIT}|{LETTER}))+    	 yylval->_string = strdup(yytext); return T_Word;
+<INITIAL>(\$|\%|\*|\+|\,|\-|\.|\/|\:|\=|\?|\[|\\|\]|\_|`|\~|({DIGIT}|{LETTER}))+    	 yylval->_string = strdup(yytext); return T_Word;
 <INITIAL>[ \t\r\n\f]      	 /* ignore white space. */;
 <INITIAL>.      	 return _ERROR_;
 

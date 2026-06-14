@@ -503,6 +503,12 @@ void ppArg(Arg p, int _i_)
     if (_i_ > 0) renderC(_R_PAREN);
     break;
 
+  case is_AssignArg:
+    if (_i_ > 0) renderC(_L_PAREN);
+    ppIdent(p->u.assignarg_.assign_, 0);
+    if (_i_ > 0) renderC(_R_PAREN);
+    break;
+
   default:
     fprintf(stderr, "Error: bad kind field when printing Arg!\n");
     exit(1);
@@ -1177,6 +1183,18 @@ void shArg(Arg p)
     bufAppendC(' ');
 
     shIdent(p->u.psubstoutarg_.procsubstout_);
+
+    bufAppendC(')');
+
+    break;
+  case is_AssignArg:
+    bufAppendC('(');
+
+    bufAppendS("AssignArg");
+
+    bufAppendC(' ');
+
+    shIdent(p->u.assignarg_.assign_);
 
     bufAppendC(')');
 

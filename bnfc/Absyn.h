@@ -213,13 +213,14 @@ Pipeline make_Pipe(CommandPart p0, Pipeline p1);
 
 struct Arg_
 {
-  enum { is_WrdArg, is_ArithArg, is_PSubstInArg, is_PSubstOutArg } kind;
+  enum { is_WrdArg, is_ArithArg, is_PSubstInArg, is_PSubstOutArg, is_AssignArg } kind;
   union
   {
     struct { Word word_; } wrdarg_;
     struct { ArithExp arithexp_; } aritharg_;
     struct { ProcSubstIn procsubstin_; } psubstinarg_;
     struct { ProcSubstOut procsubstout_; } psubstoutarg_;
+    struct { Assign assign_; } assignarg_;
   } u;
 };
 
@@ -227,6 +228,7 @@ Arg make_WrdArg(Word p0);
 Arg make_ArithArg(ArithExp p0);
 Arg make_PSubstInArg(ProcSubstIn p0);
 Arg make_PSubstOutArg(ProcSubstOut p0);
+Arg make_AssignArg(Assign p0);
 
 struct ListArg_
 {

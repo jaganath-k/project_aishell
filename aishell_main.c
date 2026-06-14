@@ -1,21 +1,23 @@
 /*
- * AiShell — Week 8 Milestone
+ * AiShell — Week 9 Milestone
  *
- * Parser:    BNFC grammar (Grammar.cf) → LR parser → typed AST (Week 7)
- * Input:     preprocess_arith() → preprocess_cmd_subst() → preprocess_quotes() → psInput() → eval
+ * Parser:    BNFC grammar → LR parser → typed AST                    (Week 7)
+ * Input:     preprocess_arith → preprocess_quotes → psInput          (Week 7)
  *
- * Command execution model:
- *   External commands  → fork/exec              (Week 5)
- *   Built-in commands  → pthread                (Week 6)
- *   @ AI queries       → bnfc_repl() intercept  (Week 8)
+ * Command execution:
+ *   External   → fork/exec                                           (Week 5)
+ *   Built-ins  → pthread                                             (Week 6)
+ *   @ queries  → RAG retrieval → MCP client → LLM                   (Week 8/9)
  *
- * @ command flow (in bnfc_repl(), before psInput):
- *   1. commands.json registry lookup  (local keyword match)
- *   2. MCP server on localhost:9000   (local TCP socket)
- *   3. OpenRouter AI via HTTPS         (internet fallback)
- *   Confirmed command → preprocess_arith → preprocess_quotes → psInput
+ * MCP Server (port 9000):
+ *   FTP protocol  → USER/QUIT/PORT/STOR/RETR/LIST/MKD               (Week 9)
+ *   MCP JSON tools → run_command/list_tools/get_status/get_registry  (Week 9)
+ *   Config         → aishell.conf                                    (Week 9)
  *
- * All @ calls logged to aishell_calls.log
+ * RAG pipeline:
+ *   TF-IDF index → cosine similarity → top-K context → LLM          (Week 9)
+ *
+ * All calls logged to aishell_calls.log
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -36,6 +38,9 @@
 #include <termios.h>
 
 #include "cmd_spec.h"
+#include "mcp_server.h"
+#include "config.h"
+#include "rag_retriever.h"
 
 /* =========================================================================
  * Constants  (mirrors Token.h / Command.h from the reference)
@@ -404,6 +409,7 @@ extern void register_xargs_command(void);
 extern void register_read_command(void);
 extern void register_test_command(void);
 extern void register_bracket_command(void);
+extern void register_server_command(void);
 
 static void register_all_commands(void) {
     register_ls_command();
@@ -465,6 +471,7 @@ static void register_all_commands(void) {
     register_read_command();
     register_test_command();
     register_bracket_command();
+    register_server_command();
 }
 
 /* =========================================================================
@@ -700,24 +707,43 @@ static int lsh_exit(cmd_t *cmd) {
     exit(code);
 }
 
+typedef struct { int count; } HelpCbState;
+
+static void help_print_one(const cmd_spec_t *spec, void *ud) {
+    HelpCbState *s = (HelpCbState *)ud;
+    s->count++;
+    printf("  %-22s %s\n", spec->name,
+           spec->summary ? spec->summary : "");
+}
+
 static int lsh_help(cmd_t *cmd) {
     (void)cmd;
-    printf("aishell — available built-in commands:\n");
-    printf("  cd [DIR]     change working directory (default: HOME)\n");
-    printf("  exit [N]     exit the shell with code N (default 0)\n");
-    printf("  help         show this message\n");
-    printf("  jobs               list background jobs\n");
-    printf("  kill [-SIG] %%N    send signal to job N (default: SIGTERM)\n");
-    printf("  kill [-SIG] PID   send signal to PID directly\n");
-    printf("  prompt STR        change the prompt string for this session\n");
-    printf("\nRegistered commands (32 total) — run <cmd> --help for details.\n");
-    printf("External programs on PATH are also supported.\n");
-    printf("Append & to any command to run it in the background.\n");
-    printf("\nAI-assisted commands (Week 8):\n");
-    printf("  @ <query>    Natural language: checks registry → MCP server → Claude AI\n");
-    printf("  @ list       List all commands.json registry entries\n");
-    printf("  @ log        Show recent call log (aishell_calls.log)\n");
-    printf("  @ help       Show @ usage and flow\n");
+    printf("aishell — shell built-ins:\n");
+    printf("  %-22s %s\n", "cd [DIR]",          "change working directory (default: HOME)");
+    printf("  %-22s %s\n", "exit [N]",          "exit with code N (default 0)");
+    printf("  %-22s %s\n", "help",              "show this message");
+    printf("  %-22s %s\n", "jobs",              "list background jobs");
+    printf("  %-22s %s\n", "kill [-SIG] %N|PID","send signal to job or PID");
+    printf("  %-22s %s\n", "prompt STR",        "change the prompt for this session");
+
+    printf("\nRegistered commands (run <cmd> --help for usage, --help-json for JSON schema):\n");
+    HelpCbState s = {0};
+    for_each_command(help_print_one, &s);
+    printf("\n  %d commands total.\n", s.count);
+
+    printf("\nAI assistant:\n");
+    printf("  %-22s %s\n", "@ <query>",  "natural language → shell command (RAG + AI)");
+    printf("  %-22s %s\n", "@ list",     "list all commands.json registry entries");
+    printf("  %-22s %s\n", "@ log",      "show recent AI call log");
+    printf("  %-22s %s\n", "@ help",     "show @ usage and flow");
+
+    printf("\nServer (port 9000 — FTP + MCP JSON):\n");
+    printf("  %-22s %s\n", "server status",       "show server running state");
+    printf("  %-22s %s\n", "server start/stop",   "start or stop the server");
+    printf("  %-22s %s\n", "server config [k=v]", "show or update aishell.conf");
+
+    printf("\nExternal programs on PATH are also supported.\n");
+    printf("Append & to run any command in the background.\n");
     return 0;
 }
 
@@ -2011,7 +2037,36 @@ int main(int argc, char **argv) {
         return 127;
     }
 
-    /* Mode 2.5 — --commands-json: emit full command catalog as JSON (week7)
+    /* Mode 2.5a — --server: start MCP/FTP server daemon (no REPL).
+     * Used by test scripts and systemd-style invocations.
+     * Exits cleanly on SIGTERM or SIGINT. */
+    if (argc > 1 && strcmp(argv[1], "--server") == 0) {
+#ifdef USE_BNFC
+        config_load("aishell.conf");
+        if (g_config.rag_enabled) rag_build_index();
+        if (mcp_server_start() != 0) {
+            fprintf(stderr, "[aishell] --server: could not start MCP server\n");
+            return 1;
+        }
+        fprintf(stderr, "[aishell] --server: MCP/FTP server running on port %d\n",
+                g_config.server_port);
+        /* Block until SIGTERM or SIGINT */
+        sigset_t wait_set;
+        sigemptyset(&wait_set);
+        sigaddset(&wait_set, SIGTERM);
+        sigaddset(&wait_set, SIGINT);
+        sigprocmask(SIG_BLOCK, &wait_set, NULL);
+        int sig = 0;
+        sigwait(&wait_set, &sig);
+        mcp_server_stop();
+        fprintf(stderr, "[aishell] --server: received signal %d, exiting\n", sig);
+#else
+        fprintf(stderr, "aishell: --server requires USE_BNFC build\n");
+#endif
+        return 0;
+    }
+
+    /* Mode 2.5b — --commands-json: emit full command catalog as JSON (week7)
      * Seed commands.json with:  ./aishell --commands-json > commands_seed.json
      * Then manually add aliases[], command, and category fields to each entry. */
     if (argc > 1 && strcmp(argv[1], "--commands-json") == 0) {
@@ -2047,7 +2102,24 @@ int main(int argc, char **argv) {
             fprintf(stderr,
                 "[aishell] No commands.json — @ will use MCP/Claude only.\n");
     }
+
+    /* Week 9: load config, build RAG index, then start MCP/FTP server thread */
+    config_load("aishell.conf");
+    if (g_config.rag_enabled) {
+        int rag_docs = rag_build_index();
+        if (rag_docs > 0)
+            fprintf(stderr, "[aishell] RAG index built: %d documents\n", rag_docs);
+    }
+    if (g_config.server_enabled) {
+        if (mcp_server_start() == 0)
+            fprintf(stderr, "[aishell] MCP server started on port %d\n",
+                    g_config.server_port);
+        else
+            fprintf(stderr, "[aishell] Warning: could not start MCP server\n");
+    }
+
     bnfc_repl();
+    mcp_server_stop();
 #else
     shell_repl();
 #endif
@@ -2648,13 +2720,15 @@ static char *preprocess_loop_syntax(const char *s) {
 static char *preprocess_quotes(const char *line) {
     char *buf = malloc(strlen(line) + 1);
     if (!buf) return strdup(line);
-    char *out    = buf;
-    int   in_q   = 0;
+    char *out   = buf;
+    char  in_q  = 0;   /* '\0' = not quoted, '"' = double-quoted, '\'' = single-quoted */
     for (const char *p = line; *p; p++) {
-        if (*p == '"') {
-            in_q = !in_q;   /* toggle; strip the " itself */
+        if (!in_q && (*p == '"' || *p == '\'')) {
+            in_q = *p;          /* enter quoted region, strip opening quote */
+        } else if (in_q && *p == in_q) {
+            in_q = 0;           /* exit quoted region, strip closing quote */
         } else if (*p == ' ' && in_q) {
-            *out++ = '`';   /* space inside quote → placeholder */
+            *out++ = '`';       /* space inside quotes → placeholder */
         } else {
             *out++ = *p;
         }
@@ -2785,6 +2859,11 @@ static char *expand_arg_ps(Arg arg, cmd_t *cmd) {
         snprintf(path, 32, "/proc/self/fd/%d", pfd[1]);
         return path;
     }
+
+    case is_AssignArg:
+        /* NAME=VALUE passed as a command argument (e.g. "server config key=val").
+         * Treat it as a literal string — do not perform variable assignment. */
+        return expand_and_unquote(arg->u.assignarg_.assign_);
 
     default: /* is_WrdArg */
         return expand_and_unquote(arg->u.wrdarg_.word_);
@@ -3151,23 +3230,9 @@ static int eval_input(Input ast) {
  *   preprocess_arith() → preprocess_quotes() → psInput() → eval_input()
  */
 
-/* Execute a confirmed shell command string through the full BNFC pipeline. */
-static int at_execute_confirmed(const char *cmd) {
-    char *after_arith = preprocess_arith(cmd);
-    char *after_subst = preprocess_cmd_subst(after_arith);
-    free(after_arith);
-    char *after_loops = preprocess_loop_syntax(after_subst);
-    free(after_subst);
-    char *processed   = preprocess_quotes(after_loops);
-    free(after_loops);
-    Input ast = psInput(processed);
-    free(processed);
-    if (!ast) {
-        fprintf(stderr, "aishell: parse error in suggested command: %s\n", cmd);
-        return 1;
-    }
-    return eval_input(ast);
-}
+/* AI-suggested commands run via at_execute_direct() → system() → /bin/sh.
+ * This handles arbitrary LLM output including #, multi-line strings, and
+ * shell syntax that the BNFC Word token charset does not cover. */
 
 /* Execute a registry command directly via /bin/sh.
  * Registry commands are pre-validated strings that may use shell syntax
@@ -3177,6 +3242,46 @@ static int at_execute_direct(const char *cmd) {
     int ret = system(cmd);
     if (ret == -1) return 1;
     return WIFEXITED(ret) ? WEXITSTATUS(ret) : 1;
+}
+
+/* Replace {placeholder} tokens interactively.
+ * Returns heap-allocated filled string (caller must free), or NULL on error.
+ * If no placeholders exist, returns strdup(cmd). */
+static char *fill_placeholders(const char *cmd) {
+    if (!strchr(cmd, '{')) return strdup(cmd);
+
+    char result[1024];
+    strncpy(result, cmd, sizeof(result) - 1);
+    result[sizeof(result) - 1] = '\0';
+
+    char *open;
+    while ((open = strchr(result, '{')) != NULL) {
+        char *close = strchr(open, '}');
+        if (!close) break;
+
+        /* Extract name between { and } */
+        char name[64];
+        size_t namelen = (size_t)(close - open - 1);
+        if (namelen >= sizeof(name)) namelen = sizeof(name) - 1;
+        memcpy(name, open + 1, namelen);
+        name[namelen] = '\0';
+
+        fprintf(stdout, "  Enter value for {%s}: ", name);
+        fflush(stdout);
+        char val[512] = "";
+        if (!fgets(val, sizeof(val), stdin)) return NULL;
+        size_t vlen = strlen(val);
+        if (vlen > 0 && val[vlen - 1] == '\n') val[--vlen] = '\0';
+
+        /* Substitute {name} → val */
+        char tmp[1024];
+        size_t prefix = (size_t)(open - result);
+        snprintf(tmp, sizeof(tmp), "%.*s%s%s",
+                 (int)prefix, result, val, close + 1);
+        strncpy(result, tmp, sizeof(result) - 1);
+        result[sizeof(result) - 1] = '\0';
+    }
+    return strdup(result);
 }
 
 /* Return 1 if cmd contains a destructive operation. */
@@ -3275,37 +3380,138 @@ static int handle_at_query(const char *raw) {
         fprintf(stdout, "  @ help   show this help\n");
         return 0;
     }
+
+    /* ── Capability meta-questions — answer locally, no AI needed ── */
+    {
+        char qlower[1024];
+        for (size_t i = 0; i < sizeof(qlower) - 1 && query[i]; i++)
+            qlower[i] = (char)((query[i] >= 'A' && query[i] <= 'Z')
+                               ? query[i] + 32 : query[i]);
+        qlower[strlen(query)] = '\0';
+
+        /* Detect capability/help intent by presence of key signal words.
+         * Phrase-matching misses word-order variants; keyword signals are robust. */
+        int has_cmd_word  = strstr(qlower, "command")    != NULL ||
+                            strstr(qlower, "support")    != NULL ||
+                            strstr(qlower, "feature")    != NULL ||
+                            strstr(qlower, "capabilit")  != NULL ||
+                            strstr(qlower, "do you")     != NULL ||
+                            strstr(qlower, "can you")    != NULL ||
+                            strstr(qlower, "can i")      != NULL ||
+                            strstr(qlower, "available")  != NULL;
+        int has_q_word    = strstr(qlower, "what")  != NULL ||
+                            strstr(qlower, "which")  != NULL ||
+                            strstr(qlower, "show")   != NULL ||
+                            strstr(qlower, "list")   != NULL ||
+                            strstr(qlower, "help")   != NULL ||
+                            strstr(qlower, "how")    != NULL ||
+                            strstr(qlower, "tell")   != NULL ||
+                            strstr(qlower, "are")    != NULL;
+        int is_capability_q = has_cmd_word && has_q_word;
+
+        if (is_capability_q) {
+            HelpCbState hcs = {0};
+            fprintf(stdout, "AiShell — registered commands:\n");
+            for_each_command(help_print_one, &hcs);
+            fprintf(stdout,
+                "\n  %d commands total. Run <cmd> --help for usage.\n"
+                "\n"
+                "Shell built-ins:  cd, exit, help, jobs, kill, prompt\n"
+                "\n"
+                "Shell features:\n"
+                "  Pipelines (|), redirection (> >> < 2>), background (&)\n"
+                "  Variables ($VAR), arithmetic ($((expr))), command substitution $(cmd)\n"
+                "  Process substitution <(cmd) >(cmd)\n"
+                "  if/elif/else/fi, for/do/done, while, until, break, continue\n"
+                "  Single and double quoted strings, key=value arguments\n"
+                "\n"
+                "@ AI assistant (natural language → shell command):\n"
+                "  @ <query>   RAG lookup → MCP server → OpenRouter AI\n"
+                "  @ list      list commands.json entries\n"
+                "  @ log       show recent AI call log\n"
+                "\n"
+                "MCP/FTP server on port 9000 (server start/stop/status/config)\n",
+                hcs.count);
+            return 0;
+        }
+    }
+
     if (strncmp(query, "log", 3) == 0 &&
             (query[3] == '\0' || query[3] == ' ')) {
         at_show_log();
         return 0;
     }
 
-    /* ── STEP B: registry lookup (local, no network) ── */
-    RegistryEntry *entry = registry_lookup(query);
-    if (entry != NULL) {
-        fprintf(stdout, "[registry] Matched: %s\n", entry->description);
+    /* ── STEP B: RAG-powered registry lookup ── */
+    char *rag_context = NULL;
 
-        char *cmd      = NULL;
-        int   cmd_heap = 0;   /* 1 if cmd was malloc'd and needs free() */
-        if (entry->requires_arg) {
-            cmd = registry_build_command(entry, query);
-            if (!cmd) return 1;   /* build_command printed a usage hint */
-            cmd_heap = 1;
+    if (g_config.rag_enabled) {
+        RagResult rag_results[RAG_TOP_K];
+        int rag_count = rag_query(query, rag_results, RAG_TOP_K);
+
+        if (rag_count > 0 && rag_results[0].score >= 0.5f) {
+            /* High-confidence match — treat like a direct registry hit */
+            fprintf(stdout, "[rag] Top match (score=%.2f): %s\n",
+                    (double)rag_results[0].score, rag_results[0].description);
+            const char *cmd_template = rag_results[0].command;
+            fprintf(stdout, "[command]  %s\n", cmd_template);
+            for (int ri = 1; ri < rag_count; ri++)
+                fprintf(stdout, "[rag] Also relevant: %s (%.2f)\n",
+                        rag_results[ri].description,
+                        (double)rag_results[ri].score);
+
+            /* Fill {placeholder} tokens before confirming/executing */
+            char *cmd = fill_placeholders(cmd_template);
+            if (!cmd) { free(rag_context); return 1; }
+            if (strcmp(cmd, cmd_template) != 0)
+                fprintf(stdout, "[command]  %s\n", cmd);  /* show filled command */
+
+            if (at_confirm(cmd)) {
+                aishell_log(LOG_REGISTRY, query, cmd, "executed");
+                int rc = at_execute_direct(cmd);
+                free(cmd);
+                return rc;
+            }
+            aishell_log(LOG_REGISTRY, query, cmd_template, "cancelled");
+            free(cmd);
+            return 0;
+
+        } else if (rag_count > 0) {
+            /* Low-confidence — build context for the LLM */
+            fprintf(stdout, "[rag] Low confidence (score=%.2f) — "
+                    "sending to AI with context...\n",
+                    (double)rag_results[0].score);
+            rag_context = rag_build_context(rag_results, rag_count);
         } else {
-            cmd = entry->command;
+            fprintf(stdout, "[rag] No relevant commands found — sending to AI...\n");
         }
-        fprintf(stdout, "[command]  %s\n", cmd);
-
-        if (at_confirm(cmd)) {
-            aishell_log(LOG_REGISTRY, query, cmd, "executed");
-            int rc = at_execute_direct(cmd);
+    } else {
+        /* RAG disabled — fall back to simple keyword lookup */
+        RegistryEntry *entry = registry_lookup(query);
+        if (entry != NULL) {
+            fprintf(stdout, "[registry] Matched: %s\n", entry->description);
+            char *cmd      = NULL;
+            int   cmd_heap = 0;
+            if (entry->requires_arg) {
+                cmd = registry_build_command(entry, query);
+                if (!cmd) { free(rag_context); return 1; }
+                cmd_heap = 1;
+            } else {
+                cmd = entry->command;
+            }
+            fprintf(stdout, "[command]  %s\n", cmd);
+            if (at_confirm(cmd)) {
+                aishell_log(LOG_REGISTRY, query, cmd, "executed");
+                int rc = at_execute_direct(cmd);
+                if (cmd_heap) free(cmd);
+                free(rag_context);
+                return rc;
+            }
+            aishell_log(LOG_REGISTRY, query, cmd, "cancelled");
             if (cmd_heap) free(cmd);
-            return rc;
+            free(rag_context);
+            return 0;
         }
-        aishell_log(LOG_REGISTRY, query, cmd, "cancelled");
-        if (cmd_heap) free(cmd);
-        return 0;
     }
 
     /* ── STEP C: MCP server (local TCP socket) ── */
@@ -3317,15 +3523,19 @@ static int handle_at_query(const char *raw) {
             fprintf(stdout, "[mcp] Command: %s\n", resp.command_used);
             if (resp.result[0])
                 fprintf(stdout, "[mcp] Result:\n%s\n", resp.result);
+            free(rag_context);
             return 0;
         }
         fprintf(stdout, "[mcp] Error: %s\n", resp.error_msg);
         /* fall through to Claude API */
     }
 
-    /* ── STEP D: OpenRouter AI fallback ── */
-    fprintf(stdout, "[ai] MCP unavailable. Calling OpenRouter AI...\n");
-    AIResponse cr = openrouter_query(query);
+    /* ── STEP D: OpenRouter AI fallback (with optional RAG context) ── */
+    fprintf(stdout, "[ai] Calling OpenRouter AI%s...\n",
+            rag_context ? " with RAG context" : "");
+    AIResponse cr = openrouter_query_ctx(query, rag_context);
+    free(rag_context);
+    rag_context = NULL;
     /* aishell_client.c logs the API call outcome (model name / error-*)
      * We add a single "executed" entry here only when the user confirms. */
     if (cr.success) {
@@ -3337,7 +3547,7 @@ static int handle_at_query(const char *raw) {
         char ans[8] = "";
         if (fgets(ans, sizeof(ans), stdin) && (ans[0] == 'y' || ans[0] == 'Y')) {
             aishell_log(LOG_AI, query, cr.suggestion, "executed");
-            return at_execute_confirmed(cr.suggestion);
+            return at_execute_direct(cr.suggestion);
         }
     } else {
         fprintf(stdout, "[openrouter] %s\n", cr.error_msg);

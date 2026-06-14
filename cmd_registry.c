@@ -372,3 +372,12 @@ void registry_list(void) {
             printf("    alias: \"%s\"\n", e->aliases[j]);
     }
 }
+
+void registry_for_each(void (*cb)(const RegistryEntry *e, void *ud), void *ud) {
+    for (int i = 0; i < g_registry_count; i++)
+        cb(&g_registry[i], ud);
+}
+
+int registry_count(void) {
+    return g_registry_count;
+}
