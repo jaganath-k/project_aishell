@@ -28,7 +28,7 @@ run() {
 
 # Start aishell --server in background (daemon mode, no REPL)
 aishell_start() {
-    "$AISHELL" --server > /tmp/week9_aishell.log 2>&1 &
+    "$AISHELL" --server > ./week9_aishell.log 2>&1 &
     AISHELL_PID=$!
     for _i in 1 2 3 4 5 6 7 8 9 10; do
         ss -tlnp 2>/dev/null | grep -q "$PORT" && break
@@ -193,7 +193,7 @@ aishell_stop
 header "PART B — Shell regression tests (piped REPL)"
 # ─────────────────────────────────────────────────────────────────────────────
 
-RT=/tmp/aishell_week9_read.txt
+RT=./aishell_week9_read.txt
 printf 'hello\n' > "$RT"
 
 # ── B1. xargs ────────────────────────────────────────────────────────────────

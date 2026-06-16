@@ -23,3 +23,10 @@ int   rag_query(const char *query, RagResult *results, int max_k);
 /* Build a context string from retrieved results for injection into the LLM prompt.
  * Returns malloc'd string — caller must free(). */
 char *rag_build_context(RagResult *results, int count);
+
+/* Deterministic heuristic fallback (port of mysh_llm.py score_command).
+ * Scores every registered cmd_spec_t by keyword matching (name=3,
+ * summary=2, long_help=1) and returns the best match's name.
+ * Returns malloc'd string — caller must free(). Never NULL if registry
+ * has at least one command. No network calls — pure local computation. */
+char *heuristic_fallback_command(const char *query);
