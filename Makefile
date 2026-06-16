@@ -30,12 +30,14 @@ SRCS = aishell_main.c \
        cmd_env.c cmd_export.c cmd_unset.c cmd_type.c \
        cmd_edit_replace_line.c cmd_edit_insert_line.c \
        cmd_edit_delete_line.c cmd_edit_replace.c \
+       cmd_edit.c \
        edit_utils.c \
        cmd_wc.c cmd_sort.c cmd_uniq.c cmd_cut.c cmd_tr.c cmd_grep.c cmd_diff.c cmd_tee.c cmd_du.c cmd_df.c cmd_ln.c cmd_chmod.c cmd_chown.c cmd_sleep.c cmd_which.c cmd_true_false.c cmd_file.c cmd_date.c cmd_find.c cmd_edit_show.c \
        hash_utils.c cmd_md5sum.c cmd_sha256sum.c cmd_alias.c cmd_history.c cmd_ping.c cmd_nc.c cmd_xargs.c cmd_read.c cmd_test.c \
        cmd_help_json.c registry.c \
        cmd_registry.c cJSON.c mcp_client.c aishell_client.c aishell_log.c \
-       config.c mcp_server.c ftp_handler.c rag_retriever.c cmd_server.c
+       config.c mcp_server.c ftp_handler.c rag_retriever.c cmd_server.c \
+       validate.c
 
 # BNFC-generated object files (built in bnfc/ after running bnfc-gen)
 BNFC_DIR  = bnfc
@@ -116,8 +118,11 @@ test: aishell
 test9: aishell
 	bash test_week9.sh
 
+test10: aishell
+	bash test_week10.sh
+
 testall: aishell
-	bash test_week5.sh && bash test_week8.sh && bash test_week9.sh
+	bash test_week5.sh && bash test_week8.sh && bash test_week9.sh && bash test_week10.sh
 
 ftp-test:
 	ftp 127.0.0.1 9000

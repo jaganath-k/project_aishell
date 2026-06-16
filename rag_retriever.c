@@ -16,6 +16,7 @@
 
 #include "rag_retriever.h"
 #include "cmd_registry.h"
+#include "cmd_spec.h"
 
 /* ── Vocabulary ─────────────────────────────────────────────────────*/
 static char vocab[RAG_MAX_VOCAB][64];
@@ -219,6 +220,87 @@ int rag_query(const char *query, RagResult *results, int max_k) {
         r->score = scores[d];
     }
     return found;
+}
+
+/* ── Heuristic fallback (port of mysh_llm.py score_command) ─────────
+ * Scores each registered cmd_spec_t:
+ *   name match    → +3
+ *   summary match → +2
+ *   long_help     → +1
+ * "match" = any lowercase query token appears as substring of the field.
+ * No network or LLM calls — pure deterministic local computation.
+ */
+typedef struct {
+    char              tokens[32][64]; /* lowercase query tokens */
+    int               token_count;
+    int               best_score;
+    const cmd_spec_t *best_cmd;
+    const cmd_spec_t *first_cmd;     /* fallback when score==0 */
+} HeuristicCtx;
+
+static int heuristic_any_token_in(const HeuristicCtx *ctx, const char *text) {
+    if (!text) return 0;
+    char lower[512];
+    size_t n = strlen(text);
+    if (n >= sizeof(lower)) n = sizeof(lower) - 1;
+    for (size_t i = 0; i < n; i++)
+        lower[i] = (char)tolower((unsigned char)text[i]);
+    lower[n] = '\0';
+    for (int i = 0; i < ctx->token_count; i++)
+        if (strstr(lower, ctx->tokens[i])) return 1;
+    return 0;
+}
+
+static void heuristic_score_cb(const cmd_spec_t *spec, void *userdata) {
+    HeuristicCtx *ctx = userdata;
+    if (!ctx->first_cmd) ctx->first_cmd = spec;
+
+    int score = 0;
+    if (heuristic_any_token_in(ctx, spec->name))     score += 3;
+    if (heuristic_any_token_in(ctx, spec->summary))  score += 2;
+    if (heuristic_any_token_in(ctx, spec->long_help)) score += 1;
+
+    if (score > ctx->best_score) {
+        ctx->best_score = score;
+        ctx->best_cmd   = spec;
+    }
+}
+
+char *heuristic_fallback_command(const char *query) {
+    if (!query) return NULL;
+
+    HeuristicCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    /* Tokenize query into lowercase alpha words */
+    char buf[64];
+    size_t bi = 0;
+    for (const char *p = query; ; p++) {
+        if (isalpha((unsigned char)*p)) {
+            if (bi < sizeof(buf) - 1)
+                buf[bi++] = (char)tolower((unsigned char)*p);
+        } else {
+            if (bi > 0 && ctx.token_count < 32) {
+                buf[bi] = '\0';
+                memcpy(ctx.tokens[ctx.token_count++], buf, bi + 1);
+                bi = 0;
+            }
+            if (!*p) break;
+        }
+    }
+
+    for_each_command(heuristic_score_cb, &ctx);
+
+    if (!ctx.first_cmd) return NULL; /* empty registry */
+
+    if (ctx.best_score > 0 && ctx.best_cmd)
+        return strdup(ctx.best_cmd->name);
+
+    /* Score zero — default to "ls" (matches mysh_llm.py default behaviour),
+     * or the very first registered command if "ls" isn't in the registry. */
+    const cmd_spec_t *def = find_command("ls");
+    if (def) return strdup(def->name);
+    return strdup(ctx.first_cmd->name);
 }
 
 /* ── Public: build context string ───────────────────────────────────*/

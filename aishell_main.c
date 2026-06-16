@@ -1,5 +1,5 @@
 /*
- * AiShell — Week 9 Milestone
+ * AiShell — Final (Week 10) Architecture
  *
  * Parser:    BNFC grammar → LR parser → typed AST                    (Week 7)
  * Input:     preprocess_arith → preprocess_quotes → psInput          (Week 7)
@@ -7,17 +7,27 @@
  * Command execution:
  *   External   → fork/exec                                           (Week 5)
  *   Built-ins  → pthread                                             (Week 6)
- *   @ queries  → RAG retrieval → MCP client → LLM                   (Week 8/9)
  *
- * MCP Server (port 9000):
- *   FTP protocol  → USER/QUIT/PORT/STOR/RETR/LIST/MKD               (Week 9)
- *   MCP JSON tools → run_command/list_tools/get_status/get_registry  (Week 9)
- *   Config         → aishell.conf                                    (Week 9)
+ * @ AI pipeline (validated, deterministic fallback guaranteed):
+ *   1. RAG (TF-IDF cosine similarity over commands.json)             (Week 9)
+ *   2. MCP client → OpenRouter/Claude                                (Week 8)
+ *   3. Heuristic fallback (mysh_llm.py scoring, ported to C)         (Week 10)
+ *   -> validate_suggestion(): single-line + catalog-only             (Week 10)
+ *   -> confirmation gate (destructive pattern list)                  (Week 8/10)
  *
- * RAG pipeline:
- *   TF-IDF index → cosine similarity → top-K context → LLM          (Week 9)
+ * MCP Server (port 9000, pthread-per-client):
+ *   FTP protocol: USER/QUIT/PORT/STOR/RETR/LIST/MKD                 (Week 9)
+ *   MCP tools: run_command, list_tools, get_status, get_registry     (Week 9)
+ *              fs.list/read/write/append/stat/search                 (Week 10)
+ *              proc.list/kill/wait                                   (Week 10)
+ *              env.get/set/list                                      (Week 10)
+ *              edit.replace_line/insert_line/delete_line/replace     (Week 10)
+ *   Config: aishell.conf + server command                            (Week 9)
  *
- * All calls logged to aishell_calls.log
+ * All activity logged to aishell_calls.log
+ *
+ * Course complete: AiShell is now a BNFC-parsed, pthread-concurrent,
+ * RAG-grounded, MCP-server-backed natural language shell.
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -41,6 +51,8 @@
 #include "mcp_server.h"
 #include "config.h"
 #include "rag_retriever.h"
+#include "validate.h"
+#include "jobs_api.h"
 
 /* =========================================================================
  * Constants  (mirrors Token.h / Command.h from the reference)
@@ -295,6 +307,200 @@ static void jobs_print_and_prune(void) {
 }
 
 /* =========================================================================
+ * proc.* MCP accessor functions (declared in jobs_api.h).
+ *
+ * These are the only non-static functions that touch job_table directly.
+ * Each acquires job_table_mutex itself.  proc_wait_json() releases the
+ * mutex before blocking on waitpid() to avoid deadlocking against the
+ * sigchld_reaper_thread (which also holds the mutex while calling waitpid).
+ * ===================================================================== */
+
+/* Minimal JSON escape for command strings — avoids pulling json_escape()
+ * (static in mcp_server.c) across translation units. */
+static void job_escape_json(const char *src, char *dst, size_t dstsz) {
+    size_t i = 0;
+    for (; *src && i + 4 < dstsz; src++) {
+        unsigned char c = (unsigned char)*src;
+        if      (c == '"')  { dst[i++] = '\\'; dst[i++] = '"';  }
+        else if (c == '\\') { dst[i++] = '\\'; dst[i++] = '\\'; }
+        else if (c == '\n') { dst[i++] = '\\'; dst[i++] = 'n';  }
+        else if (c == '\r') { dst[i++] = '\\'; dst[i++] = 'r';  }
+        else if (c == '\t') { dst[i++] = '\\'; dst[i++] = 't';  }
+        else if (c >= 0x20) { dst[i++] = c; }
+    }
+    dst[i] = '\0';
+}
+
+int proc_list_json(char *buf, size_t bufsz) {
+    pthread_mutex_lock(&job_table_mutex);
+    int off = snprintf(buf, bufsz, "[");
+    int first = 1;
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (job_table[i].job_type == JOB_TYPE_NONE) continue;
+        const char *state = (job_table[i].status == JOB_RUNNING) ? "running" :
+                            (job_table[i].status == JOB_STOPPED) ? "stopped" : "done";
+        const char *type  = (job_table[i].job_type == JOB_TYPE_PROCESS) ?
+                            "process" : "thread";
+        char ecmd[512];
+        job_escape_json(job_table[i].command, ecmd, sizeof(ecmd));
+        char entry[640];
+        int elen = snprintf(entry, sizeof(entry),
+                            "%s{\"job_id\":%d,\"pid\":%d,"
+                            "\"command\":\"%s\","
+                            "\"state\":\"%s\",\"type\":\"%s\","
+                            "\"exit_code\":%d}",
+                            first ? "" : ",",
+                            job_table[i].id, (int)job_table[i].pid,
+                            ecmd, state, type,
+                            job_table[i].exit_code);
+        if (off + elen + 4 < (int)bufsz) {
+            memcpy(buf + off, entry, (size_t)elen);
+            off += elen;
+            first = 0;
+        }
+    }
+    pthread_mutex_unlock(&job_table_mutex);
+    int rest = snprintf(buf + off, bufsz - (size_t)off, "]");
+    return off + rest;
+}
+
+static int signame_to_num(const char *name) {
+    if (!name || !*name)                                    return SIGTERM;
+    if (strcmp(name, "SIGKILL") == 0 || strcmp(name, "9")  == 0) return SIGKILL;
+    if (strcmp(name, "SIGINT")  == 0 || strcmp(name, "2")  == 0) return SIGINT;
+    if (strcmp(name, "SIGSTOP") == 0 || strcmp(name, "19") == 0) return SIGSTOP;
+    if (strcmp(name, "SIGCONT") == 0 || strcmp(name, "18") == 0) return SIGCONT;
+    if (strcmp(name, "SIGHUP")  == 0 || strcmp(name, "1")  == 0) return SIGHUP;
+    return SIGTERM;
+}
+
+int proc_kill_json(int job_id, const char *signal_name,
+                   char *resp, size_t respsz) {
+    int signum = signame_to_num(signal_name);
+
+    pthread_mutex_lock(&job_table_mutex);
+    pid_t pid = -1;
+    int is_thread = 0;
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (job_table[i].job_type != JOB_TYPE_NONE &&
+            job_table[i].id == job_id) {
+            if (job_table[i].job_type == JOB_TYPE_THREAD) {
+                is_thread = 1;
+            } else {
+                pid = job_table[i].pid;
+            }
+            break;
+        }
+    }
+    pthread_mutex_unlock(&job_table_mutex);
+
+    if (is_thread) {
+        snprintf(resp, respsz,
+                 "{\"status\":\"error\","
+                 "\"message\":\"job %d is a background thread, not a process — "
+                 "cannot send signal\"}", job_id);
+        return -1;
+    }
+    if (pid < 0) {
+        snprintf(resp, respsz,
+                 "{\"status\":\"error\","
+                 "\"message\":\"job %d not found\"}", job_id);
+        return -1;
+    }
+    if (kill(pid, signum) < 0) {
+        snprintf(resp, respsz,
+                 "{\"status\":\"error\","
+                 "\"message\":\"%s\"}", strerror(errno));
+        return -1;
+    }
+    snprintf(resp, respsz,
+             "{\"status\":\"ok\",\"tool\":\"proc.kill\","
+             "\"result\":{\"job_id\":%d,\"pid\":%d,\"signal\":\"%s\"}}",
+             job_id, (int)pid, signal_name ? signal_name : "SIGTERM");
+    return 0;
+}
+
+int proc_wait_json(int job_id, char *resp, size_t respsz) {
+    pthread_mutex_lock(&job_table_mutex);
+    int idx = -1;
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (job_table[i].job_type != JOB_TYPE_NONE &&
+            job_table[i].id == job_id) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) {
+        pthread_mutex_unlock(&job_table_mutex);
+        snprintf(resp, respsz,
+                 "{\"status\":\"error\","
+                 "\"message\":\"job %d not found\"}", job_id);
+        return -1;
+    }
+    if (job_table[idx].job_type == JOB_TYPE_THREAD) {
+        pthread_mutex_unlock(&job_table_mutex);
+        snprintf(resp, respsz,
+                 "{\"status\":\"error\","
+                 "\"message\":\"cannot wait on detached background thread\"}");
+        return -1;
+    }
+    /* Already done — return stored exit code without blocking. */
+    if (job_table[idx].status == JOB_DONE) {
+        int ec = job_table[idx].exit_code;
+        pthread_mutex_unlock(&job_table_mutex);
+        snprintf(resp, respsz,
+                 "{\"status\":\"ok\",\"tool\":\"proc.wait\","
+                 "\"result\":{\"job_id\":%d,\"exit_code\":%d}}",
+                 job_id, ec);
+        return 0;
+    }
+    pid_t pid = job_table[idx].pid;
+    pthread_mutex_unlock(&job_table_mutex);
+
+    /* Block until the process exits.  Mutex is released above so the
+     * sigchld_reaper_thread can still run concurrently. */
+    int wstatus = 0;
+    pid_t r = waitpid(pid, &wstatus, 0);
+    int exit_code = 0;
+    if (r > 0) {
+        exit_code = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus)
+                                       : 128 + WTERMSIG(wstatus);
+        pthread_mutex_lock(&job_table_mutex);
+        for (int i = 0; i < MAX_JOBS; i++) {
+            if (job_table[i].id == job_id) {
+                job_table[i].status    = JOB_DONE;
+                job_table[i].exit_code = exit_code;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&job_table_mutex);
+    } else if (r < 0 && errno == ECHILD) {
+        /* Reaper already collected this child — use its stored exit code. */
+        pthread_mutex_lock(&job_table_mutex);
+        for (int i = 0; i < MAX_JOBS; i++) {
+            if (job_table[i].id == job_id) {
+                exit_code = job_table[i].exit_code;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&job_table_mutex);
+    }
+    snprintf(resp, respsz,
+             "{\"status\":\"ok\",\"tool\":\"proc.wait\","
+             "\"result\":{\"job_id\":%d,\"exit_code\":%d}}",
+             job_id, exit_code);
+    return 0;
+}
+
+/* Forward declaration — var_set is defined after the REPL helpers below. */
+static void var_set(const char *name, const char *value);
+
+/* Keep the REPL's private var_store in sync after env.set calls setenv(). */
+void mcp_sync_var(const char *name, const char *value) {
+    var_set(name, value);
+}
+
+/* =========================================================================
  * SIGCHLD handler — safe self-pipe notification.
  *
  * pthread_mutex_lock is NOT async-signal-safe (POSIX.1-2017 §2.4.3).
@@ -377,6 +583,7 @@ extern void register_edit_replace_line_command(void);
 extern void register_edit_insert_line_command(void);
 extern void register_edit_delete_line_command(void);
 extern void register_edit_replace_command(void);
+extern void register_edit_command(void);
 extern void register_wc_command(void);
 extern void register_sort_command(void);
 extern void register_date_command(void);
@@ -439,6 +646,7 @@ static void register_all_commands(void) {
     register_edit_insert_line_command();
     register_edit_delete_line_command();
     register_edit_replace_command();
+    register_edit_command();
     register_wc_command();
     register_sort_command();
     register_date_command();
@@ -3284,19 +3492,56 @@ static char *fill_placeholders(const char *cmd) {
     return strdup(result);
 }
 
-/* Return 1 if cmd contains a destructive operation. */
+/* Patterns that require the full "yes" confirmation gate.
+ * Checked case-insensitively against the validated suggestion line.
+ * Add new patterns here — at_is_destructive() picks them up automatically. */
+static const char * const DESTRUCTIVE_PATTERNS[] = {
+    "rm ",           /* remove files (with trailing space to avoid "rmi" etc.) */
+    "rm -",          /* rm with any flag: rm -rf, rm -r, rm -i, ... */
+    "-delete",       /* find -delete */
+    "rmdir",         /* remove directory */
+    "mkfs",          /* format a filesystem */
+    "dd ",           /* disk dump — can overwrite entire devices */
+    "> /dev/",       /* redirect into device node */
+    "chmod -r",      /* recursive permission change (case-insensitive → -R) */
+    "chown -r",      /* recursive ownership change */
+    "kill -9",       /* SIGKILL — uncatchable, immediate termination */
+    "truncate",      /* truncate file to zero (or specified size) */
+    ":(){ :|:& };:", /* fork bomb */
+    NULL
+};
+
+/* Case-insensitive strstr helper (no external dependency). */
+static int ci_contains(const char *haystack, const char *needle) {
+    if (!haystack || !needle) return 0;
+    size_t hlen = strlen(haystack), nlen = strlen(needle);
+    if (nlen == 0) return 1;
+    if (nlen > hlen) return 0;
+    for (size_t i = 0; i <= hlen - nlen; i++) {
+        size_t j;
+        for (j = 0; j < nlen; j++) {
+            if (tolower((unsigned char)haystack[i + j]) !=
+                tolower((unsigned char)needle[j])) break;
+        }
+        if (j == nlen) return 1;
+    }
+    return 0;
+}
+
+/* Return 1 if cmd matches any destructive pattern (case-insensitive). */
 static int at_is_destructive(const char *cmd) {
-    return strstr(cmd, "-delete") != NULL ||
-           strstr(cmd, "-rm")     != NULL ||
-           strstr(cmd, "rm ")     != NULL ||
-           strstr(cmd, "rmdir ")  != NULL;
+    for (int i = 0; DESTRUCTIVE_PATTERNS[i]; i++)
+        if (ci_contains(cmd, DESTRUCTIVE_PATTERNS[i])) return 1;
+    return 0;
 }
 
 /* Prompt for confirmation. Destructive commands require the word "yes";
  * safe commands accept y/Y. Returns 1 if confirmed, 0 if cancelled.   */
 static int at_confirm(const char *cmd) {
     if (at_is_destructive(cmd)) {
-        fprintf(stdout, "\033[0;31m WARNING: This will permanently delete files.\033[0m\n");
+        fprintf(stdout,
+                "\033[0;31m⚠  WARNING: This command may be destructive "
+                "or irreversible.\033[0m\n");
         fprintf(stdout, "   Command: %s\n", cmd);
         fprintf(stdout, "   Type 'yes' to confirm, anything else to cancel: ");
         fflush(stdout);
@@ -3454,16 +3699,42 @@ static int handle_at_query(const char *raw) {
             fprintf(stdout, "[rag] Top match (score=%.2f): %s\n",
                     (double)rag_results[0].score, rag_results[0].description);
             const char *cmd_template = rag_results[0].command;
-            fprintf(stdout, "[command]  %s\n", cmd_template);
             for (int ri = 1; ri < rag_count; ri++)
                 fprintf(stdout, "[rag] Also relevant: %s (%.2f)\n",
                         rag_results[ri].description,
                         (double)rag_results[ri].score);
 
+            /* Validate: single-line + catalog check */
+            ValidatedSuggestion vr = validate_suggestion(cmd_template);
+            if (vr.status == SUGGEST_MULTILINE_TRUNCATED)
+                fprintf(stdout, "[@] (suggestion was multi-line; using first line only)\n");
+            if (vr.status == SUGGEST_EMPTY) {
+                fprintf(stdout, "[@] RAG returned an empty suggestion. Try rephrasing.\n");
+                aishell_log(LOG_REGISTRY, query, "", "empty");
+                free(rag_context); return 0;
+            }
+            if (vr.status == SUGGEST_UNKNOWN_COMMAND) {
+                fprintf(stdout, "[@] RAG command '%s' not in catalog — "
+                        "falling back to heuristic...\n", vr.command_name);
+                char *fb = heuristic_fallback_command(query);
+                if (fb) {
+                    fprintf(stdout, "[fallback] Heuristic suggestion: %s\n", fb);
+                    if (at_confirm(fb)) {
+                        aishell_log(LOG_REGISTRY, query, fb, "executed");
+                        int rc = at_execute_direct(fb);
+                        free(fb); free(rag_context); return rc;
+                    }
+                    aishell_log(LOG_REGISTRY, query, fb, "cancelled");
+                    free(fb);
+                }
+                free(rag_context); return 0;
+            }
+            fprintf(stdout, "[command]  %s\n", vr.line);
+
             /* Fill {placeholder} tokens before confirming/executing */
-            char *cmd = fill_placeholders(cmd_template);
+            char *cmd = fill_placeholders(vr.line);
             if (!cmd) { free(rag_context); return 1; }
-            if (strcmp(cmd, cmd_template) != 0)
+            if (strcmp(cmd, vr.line) != 0)
                 fprintf(stdout, "[command]  %s\n", cmd);  /* show filled command */
 
             if (at_confirm(cmd)) {
@@ -3472,7 +3743,7 @@ static int handle_at_query(const char *raw) {
                 free(cmd);
                 return rc;
             }
-            aishell_log(LOG_REGISTRY, query, cmd_template, "cancelled");
+            aishell_log(LOG_REGISTRY, query, vr.line, "cancelled");
             free(cmd);
             return 0;
 
@@ -3520,7 +3791,13 @@ static int handle_at_query(const char *raw) {
         McpResponse resp = mcp_query(query);
         /* mcp_client.c already logs the outcome via aishell_log(LOG_MCP,...) */
         if (resp.success) {
-            fprintf(stdout, "[mcp] Command: %s\n", resp.command_used);
+            /* Validate command_used (single-line only — MCP is a local
+             * trusted server; catalog check is informational here) */
+            ValidatedSuggestion vm = validate_suggestion(resp.command_used);
+            if (vm.status == SUGGEST_MULTILINE_TRUNCATED)
+                fprintf(stdout, "[@] (MCP response was multi-line; showing first line)\n");
+            fprintf(stdout, "[mcp] Command: %s\n",
+                    vm.status != SUGGEST_EMPTY ? vm.line : resp.command_used);
             if (resp.result[0])
                 fprintf(stdout, "[mcp] Result:\n%s\n", resp.result);
             free(rag_context);
@@ -3539,18 +3816,60 @@ static int handle_at_query(const char *raw) {
     /* aishell_client.c logs the API call outcome (model name / error-*)
      * We add a single "executed" entry here only when the user confirms. */
     if (cr.success) {
-        fprintf(stdout, "[openrouter] Suggested command: %s\n", cr.suggestion);
-        if (cr.explanation[0])
-            fprintf(stdout, "[openrouter] Explanation: %s\n", cr.explanation);
-        fprintf(stdout, "Execute? [y/N]: ");
-        fflush(stdout);
-        char ans[8] = "";
-        if (fgets(ans, sizeof(ans), stdin) && (ans[0] == 'y' || ans[0] == 'Y')) {
-            aishell_log(LOG_AI, query, cr.suggestion, "executed");
-            return at_execute_direct(cr.suggestion);
+        /* Validate: single-line truncation + catalog-only enforcement */
+        ValidatedSuggestion vc = validate_suggestion(cr.suggestion);
+        if (vc.status == SUGGEST_MULTILINE_TRUNCATED)
+            fprintf(stdout, "[@] (suggestion was multi-line; using first line only)\n");
+        if (vc.status == SUGGEST_EMPTY) {
+            fprintf(stdout, "[@] AI returned an empty suggestion. Try rephrasing.\n");
+            aishell_log(LOG_AI, query, "", "empty");
+        } else if (vc.status == SUGGEST_UNKNOWN_COMMAND) {
+            fprintf(stdout, "[@] Suggested command '%s' is not in the catalog — rejected.\n",
+                    vc.command_name);
+            fprintf(stdout, "[@] Falling back to heuristic suggestion...\n");
+            /* ONE retry — heuristic always returns a registered command */
+            char *fb = heuristic_fallback_command(query);
+            if (fb) {
+                fprintf(stdout, "[fallback] Heuristic suggestion: %s\n", fb);
+                if (at_confirm(fb)) {
+                    aishell_log(LOG_AI, query, fb, "executed");
+                    int rc = at_execute_direct(fb);
+                    free(fb); return rc;
+                }
+                aishell_log(LOG_AI, query, fb, "cancelled");
+                free(fb);
+            }
+        } else {
+            /* SUGGEST_OK or SUGGEST_MULTILINE_TRUNCATED (command valid) */
+            fprintf(stdout, "[openrouter] Suggested command: %s\n", vc.line);
+            if (cr.explanation[0])
+                fprintf(stdout, "[openrouter] Explanation: %s\n", cr.explanation);
+            if (at_confirm(vc.line)) {
+                aishell_log(LOG_AI, query, vc.line, "executed");
+                return at_execute_direct(vc.line);
+            }
         }
     } else {
         fprintf(stdout, "[openrouter] %s\n", cr.error_msg);
+
+        /* ── STEP E: Deterministic heuristic fallback ────────────────────
+         * Both MCP and OpenRouter are unavailable.  Port of mysh_llm.py
+         * score_command() scoring: name=3, summary=2, description=1.
+         * Guarantees a catalog-grounded suggestion with no network calls. */
+        char *fallback = heuristic_fallback_command(query);
+        if (fallback) {
+            fprintf(stdout,
+                    "[fallback] No AI available. Heuristic suggestion: %s\n",
+                    fallback);
+            if (at_confirm(fallback)) {
+                aishell_log(LOG_REGISTRY, query, fallback, "executed");
+                int rc = at_execute_direct(fallback);
+                free(fallback);
+                return rc;
+            }
+            aishell_log(LOG_REGISTRY, query, fallback, "cancelled");
+            free(fallback);
+        }
     }
     return 0;
 }
